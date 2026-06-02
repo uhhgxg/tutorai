@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}对话辅导 - TutorAI{% endblock %}
+
+{% block sidebar %}
+<div class="sidebar-section">
+    <button class="btn btn-primary btn-full" onclick="newChat()">+ 新建对话</button>
+</div>
+<div class="sidebar-section">
+    <h3 class="sidebar-label">历史对话</h3>
+    <div id="conv-list" class="conv-list"></div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="chat-container">
+    <div class="chat-header">
+        <div class="chat-header-left">
+            <h2 id="chat-title">💬 对话辅导</h2>
+        </div>
+        <div class="chat-header-actions">
+            <button class="btn btn-sm btn-danger" onclick="clearChat()" id="btn-clear" style="display:none">🗑️ 清空对话</button>
+        </div>
+    </div>
+
+    <div class="chat-messages" id="chat-messages">
+        <div class="chat-welcome">
+            <div class="chat-welcome-icon">🤖</div>
+            <h2>你好！我是 TutorAI</h2>
+            <p>我是你的 AI 学习导师，耐心解答你的问题。选择一个话题开始吧。</p>
+            <div class="suggestion-chips">
+                <button class="chip" onclick="sendSuggestion(this)">请给我解释一下什么是机器学习</button>
+                <button class="chip" onclick="sendSuggestion(this)">用 Python 写一个快速排序</button>
+                <button class="chip" onclick="sendSuggestion(this)">什么是光合作用？</button>
+                <button class="chip" onclick="sendSuggestion(this)">帮我理解牛顿第二定律</button>
+                <button class="chip" onclick="sendSuggestion(this)">请介绍一下中国近代史</button>
+                <button class="chip" onclick="sendSuggestion(this)">如何高效记忆英语单词？</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="chat-input-area">
+        <textarea
+            id="chat-input"
+            class="chat-input"
+            placeholder="输入你的问题... (Shift+Enter 换行, Enter 发送, Ctrl+K 聚焦)"
+            rows="1"
+            onkeydown="handleChatKey(event)"
+        ></textarea>
+        <button class="btn btn-primary" onclick="sendMessage()" id="btn-send">发送</button>
+        <button class="btn btn-danger stop-btn" id="btn-stop" onclick="if(isStreaming){streamAbortController&&streamAbortController.abort();isStreaming=false;}" style="display:none">停止</button>
+    </div>
+    <p class="input-hint">按 Enter 发送消息，Shift+Enter 换行</p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/chat.js"></script>
+{% endblock %}

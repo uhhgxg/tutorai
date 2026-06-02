@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}出题测试 - TutorAI{% endblock %}
+
+{% block content %}
+<div class="quiz-container">
+    <div class="quiz-header">
+        <h2>📝 出题测试</h2>
+        <p>输入知识点或上传文档，AI 自动生成选择题，附带答案和详细解析。</p>
+    </div>
+
+    <div class="quiz-input-section">
+        <div class="quiz-tabs">
+            <button class="quiz-tab active" onclick="switchQuizTab('text')">✍️ 输入知识点</button>
+            <button class="quiz-tab" onclick="switchQuizTab('file')">📄 上传文档</button>
+        </div>
+
+        <!-- 文本输入模式 -->
+        <div id="quiz-text-mode" class="quiz-mode">
+            <textarea id="quiz-content" class="quiz-textarea"
+                      placeholder="输入知识点内容（至少 50 字），例如：&#10;&#10;光合作用包括光反应和暗反应两个阶段。光反应在类囊体膜上进行，将光能转化为 ATP 和 NADPH。暗反应在叶绿体基质中进行，利用光反应产生的 ATP 和 NADPH 将 CO₂ 固定为有机物...&#10;&#10;AI 会根据这些内容生成选择题。"></textarea>
+            <div class="quiz-char-count" id="quiz-char-count">0 字</div>
+            <div class="quiz-controls">
+                <label for="quiz-count">题目数量:</label>
+                <select id="quiz-count">
+                    <option value="3">3 题</option>
+                    <option value="5" selected>5 题</option>
+                    <option value="10">10 题</option>
+                </select>
+                <button class="btn btn-primary" id="btn-generate" onclick="generateQuiz()">🎲 生成练习题</button>
+            </div>
+        </div>
+
+        <!-- 文件上传模式 -->
+        <div id="quiz-file-mode" class="quiz-mode" style="display:none">
+            <div class="upload-area">
+                <div class="upload-zone" id="quiz-upload-zone">
+                    <div class="upload-icon">📁</div>
+                    <p>上传文档，AI 自动提取知识点并出题</p>
+                    <p class="upload-hint">支持 PDF / TXT / Markdown</p>
+                    <input type="file" id="quiz-file-input" accept=".pdf,.txt,.md" hidden
+                           onchange="handleQuizFileSelect(event)">
+                    <button class="btn btn-primary" onclick="document.getElementById('quiz-file-input').click()">选择文件</button>
+                    <p id="quiz-file-name" style="margin-top:8px;font-size:0.85rem;color:var(--success)"></p>
+                </div>
+            </div>
+            <div class="quiz-controls" id="quiz-file-controls" style="display:none">
+                <label for="quiz-file-count">题目数量:</label>
+                <select id="quiz-file-count">
+                    <option value="3">3 题</option>
+                    <option value="5" selected>5 题</option>
+                    <option value="10">10 题</option>
+                </select>
+                <button class="btn btn-primary" id="btn-generate-file" onclick="generateQuizFromFile()">🎲 生成练习题</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 结果展示 -->
+    <div id="quiz-result" class="quiz-result">
+        <div class="empty-state">
+            <div class="empty-state-icon">📝</div>
+            <h3>开始生成练习题</h3>
+            <p>输入知识点或上传文档，AI 将自动生成高质量选择题</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/quiz.js"></script>
+{% endblock %}

@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}文档问答 - TutorAI{% endblock %}
+
+{% block sidebar %}
+<div class="sidebar-section">
+    <h3 class="sidebar-label">已上传文档</h3>
+    <div id="doc-list" class="conv-list"></div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="doc-container">
+    <div class="doc-header">
+        <h2>📄 文档问答</h2>
+        <p>上传文档后，针对文档内容提问，AI 会基于文档内容回答并附上引用来源。</p>
+    </div>
+
+    <!-- 上传区域 -->
+    <div class="upload-area" id="upload-area">
+        <div class="upload-zone" id="upload-zone">
+            <div class="upload-icon">📁</div>
+            <p>拖拽文件到此处，或点击上传</p>
+            <p class="upload-hint">支持 PDF / TXT / Markdown / 代码文件（最大 32MB）</p>
+            <input type="file" id="file-input"
+                   accept=".pdf,.txt,.md,.py,.js,.ts,.html,.css,.json,.yaml,.yml"
+                   hidden onchange="handleFileSelect(event)">
+            <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">选择文件</button>
+        </div>
+        <div id="upload-progress" class="upload-progress" style="display:none">
+            <span id="upload-status" style="display:block;margin-bottom:8px"></span>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 文档卡片列表 -->
+    <div id="doc-cards" style="display:flex;flex-direction:column;gap:8px;margin-bottom:24px"></div>
+
+    <!-- 问答区域 -->
+    <div class="qa-section" id="qa-section" style="display:none">
+        <div class="qa-header">
+            <h3 id="qa-doc-name"></h3>
+            <button class="btn btn-sm btn-ghost" onclick="closeDocument()">✕ 关闭</button>
+        </div>
+
+        <div class="qa-input-row">
+            <input type="text" id="qa-question" class="qa-input"
+                   placeholder="针对文档内容提问... (Ctrl+K 快速聚焦)"
+                   onkeydown="if(event.key==='Enter') queryDocument()">
+            <button class="btn btn-primary" id="qa-query-btn" onclick="queryDocument()">提问</button>
+        </div>
+
+        <div id="qa-result" class="qa-result"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/document.js"></script>
+{% endblock %}

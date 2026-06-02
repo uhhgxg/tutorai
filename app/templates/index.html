@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}TutorAI - AI 学习助手{% endblock %}
+
+{% block content %}
+<div class="landing">
+    <div class="landing-hero">
+        <h1>TutorAI</h1>
+        <p class="landing-subtitle">你的 AI 智能学习助手</p>
+        <p class="landing-desc">
+            基于大语言模型，提供个性化辅导、文档问答和自动出题功能。
+            支持 OpenAI / DeepSeek / 通义千问等多种模型。
+        </p>
+        <div class="landing-actions">
+            <a href="/chat" class="btn btn-primary btn-lg">💬 开始对话</a>
+            <a href="/documents" class="btn btn-secondary btn-lg">📄 文档问答</a>
+            <a href="/quiz" class="btn btn-secondary btn-lg">📝 出题测试</a>
+        </div>
+    </div>
+
+    <div class="feature-cards">
+        <div class="feature-card">
+            <div class="feature-icon">💬</div>
+            <h3>智能对话辅导</h3>
+            <p>设定学习主题，AI 老师耐心解答，支持多轮对话，自动总结对话标题，像 ChatGPT 一样的实时流式体验。</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon">📄</div>
+            <h3>文档检索问答</h3>
+            <p>上传 PDF / TXT / Markdown / 代码文件，基于 TF-IDF 语义检索 + LLM 理解，针对文档内容精准提问，附答案来源引用。</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon">📝</div>
+            <h3>自动出题测试</h3>
+            <p>输入知识点或上传文档，AI 自动生成选择题，包含正确答案和详细解析，检验学习效果，巩固知识盲区。</p>
+        </div>
+    </div>
+
+    <div class="landing-footer">
+        <p>⚡ 技术栈: FastAPI + LangChain + SQLite + TF-IDF + OpenAI 兼容 API</p>
+        <p>📦 开源协议: MIT | 🐳 支持 Docker 部署</p>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}TutorAI - AI 学习助手{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <!-- 侧边栏遮罩（移动端） -->
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+    <div class="app-layout">
+        <!-- 侧边栏 -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <a href="/" class="logo">📚 TutorAI</a>
+                <button class="sidebar-toggle" onclick="toggleSidebar()" title="关闭菜单">✕</button>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="/chat" class="nav-item {% if request.url.path.startswith('/chat') %}active{% endif %}">
+                    <span class="nav-icon">💬</span> 对话辅导
+                </a>
+                <a href="/documents" class="nav-item {% if request.url.path.startswith('/documents') %}active{% endif %}">
+                    <span class="nav-icon">📄</span> 文档问答
+                </a>
+                <a href="/quiz" class="nav-item {% if request.url.path.startswith('/quiz') %}active{% endif %}">
+                    <span class="nav-icon">📝</span> 出题测试
+                </a>
+            </nav>
+            {% block sidebar %}{% endblock %}
+
+            <!-- 主题切换 -->
+            <div class="sidebar-footer">
+                <button class="theme-toggle" id="theme-toggle-btn" onclick="toggleTheme()">
+                    <span class="theme-toggle-icon">🌙</span> 深色模式
+                </button>
+            </div>
+        </aside>
+
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <!-- 移动端汉堡菜单 -->
+            <button class="mobile-menu-btn" onclick="toggleSidebar()" style="position:absolute;top:12px;left:12px;z-index:50">☰</button>
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    <script src="/static/js/main.js"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>
