@@ -31,4 +31,5 @@ class Settings:
         return self.database_url.replace("sqlite:///", "")
 
 
+
 settings = Settings()

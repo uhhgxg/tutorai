@@ -6,7 +6,12 @@ langchain-community>=0.3.0
 langchain-openai>=0.3.0
 scikit-learn>=1.5.0
 PyMuPDF>=1.24.0
+Pillow>=10.0.0
+pytesseract>=0.3.10
 jinja2>=3.1.0
 python-multipart>=0.0.12
 python-dotenv>=1.0.0
 aiofiles>=24.0.0
+
+# 文本嵌入（可选，已有 scikit-learn TF-IDF）
+# sentence-transformers 不再需要

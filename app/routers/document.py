@@ -46,7 +46,7 @@ async def upload_document(file: UploadFile = File(...), conn: Connection = Depen
 
     # 重建全局索引
     all_chunks = get_all_chunks(conn)
-    rebuild_index([c[1] for c in all_chunks])
+    rebuild_index(all_chunks)
 
     return doc
 
@@ -57,7 +57,7 @@ def delete_document(doc_id: str, conn: Connection = Depends(get_conn)):
         raise HTTPException(status_code=404, detail="文档不存在")
     # 重建索引
     all_chunks = get_all_chunks(conn)
-    rebuild_index([c[1] for c in all_chunks])
+    rebuild_index(all_chunks)
     return {"ok": True}
 
 
@@ -67,10 +67,9 @@ def query_document(doc_id: str, req: DocumentQueryRequest, conn: Connection = De
     if not chunks:
         raise HTTPException(status_code=404, detail="文档不存在或内容为空")
 
-    # 对这个文档单独建临时索引
+    # TF-IDF 向量搜索（指定 doc_id 过滤，无需重建临时索引）
     retriever = get_retriever()
-    retriever.index(chunks)
-    results = retriever.search(req.question, top_k=req.top_k)
+    results = retriever.search(req.question, top_k=req.top_k, doc_id=doc_id)
 
     if not results:
         return DocumentQueryResponse(answer="未找到与问题相关的内容。", sources=[])

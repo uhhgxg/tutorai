@@ -108,7 +108,7 @@ async function loadDocuments() {
         }
 
         list.innerHTML = docs.map(d => `
-            <div class="conv-item" onclick="openDocument('${d.id}', '${escapeHtml(d.filename)}')" title="${escapeHtml(d.filename)}">
+            <div class="conv-item" onclick="openDocument('${escapeHtml(d.id)}', '${escapeHtml(d.filename)}')" title="${escapeHtml(d.filename)}">
                 <span class="conv-item-title">📄 ${escapeHtml(d.filename)}</span>
                 <span class="conv-item-meta">${d.chunk_count}块</span>
             </div>
@@ -138,12 +138,12 @@ function updateDocCards(docs) {
     }
 
     container.innerHTML = docs.map(d => `
-        <div class="doc-card" onclick="openDocument('${d.id}', '${escapeHtml(d.filename)}')">
+        <div class="doc-card" onclick="openDocument('${escapeHtml(d.id)}', '${escapeHtml(d.filename)}')">
             <div class="doc-card-info">
                 <div class="doc-card-name">📄 ${escapeHtml(d.filename)}</div>
                 <div class="doc-card-meta">${d.chunk_count} 个文本块 · ${formatTime(d.created_at)}</div>
             </div>
-            <button class="doc-card-del" onclick="event.stopPropagation(); deleteDocument('${d.id}', '${escapeHtml(d.filename)}')" title="删除">🗑️</button>
+            <button class="doc-card-del" onclick="event.stopPropagation(); deleteDocument('${escapeHtml(d.id)}', '${escapeHtml(d.filename)}')" title="删除">🗑️</button>
         </div>
     `).join('');
 }

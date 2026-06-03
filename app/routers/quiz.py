@@ -1,6 +1,6 @@
 """出题 API —— 根据知识点生成练习题"""
 
-from fastapi import APIRouter, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
 
 from app.models import QuizRequest
@@ -29,14 +29,17 @@ async def generate_quiz_from_file(
 ):
     """上传文档，自动提取内容并生成练习题"""
     if not file.filename:
-        content = "未提供文件"
-    else:
-        try:
-            content = parse_document(file.filename, await file.read())
-            content = content[:4000]
-        except ValueError as e:
-            content = f"文件解析失败: {e}"
+        raise HTTPException(status_code=400, detail="文件名不能为空")
 
+    try:
+        content = parse_document(file.filename, await file.read())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if not content.strip():
+        raise HTTPException(status_code=400, detail="文档内容为空")
+
+    content = content[:4000]
     messages = build_quiz_messages(content, question_count)
 
     def generate():

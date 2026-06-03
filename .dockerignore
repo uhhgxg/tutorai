@@ -1,5 +1,9 @@
+.venv/
+venv/
 __pycache__/
 *.pyc
+.git/
+.gitignore
 .env
 data/
 *.db
@@ -7,10 +11,6 @@ data/
 *.egg-info/
 dist/
 build/
-.venv/
-venv/
+.pytest_cache/
 .idea/
-output/
-*.log
-tutorai-tech-analysis.html
-=*
+README.md

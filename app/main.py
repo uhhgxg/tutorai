@@ -24,7 +24,7 @@ async def lifespan(app: FastAPI):
     try:
         all_chunks = get_all_chunks(conn)
         if all_chunks:
-            rebuild_index([c[1] for c in all_chunks])
+            rebuild_index(all_chunks)
     finally:
         conn.close()
     yield

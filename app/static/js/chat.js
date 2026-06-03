@@ -214,6 +214,7 @@ async function sendMessage() {
     }
 
     isStreaming = true;
+    streamAbortController = new AbortController();
     const bubble = createStreamingBubble();
     let fullContent = '';
 
@@ -222,6 +223,7 @@ async function sendMessage() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ message }),
+            signal: streamAbortController.signal,
         });
 
         if (!resp.ok) throw new Error(await resp.text());
@@ -239,12 +241,17 @@ async function sendMessage() {
             scrollToBottom(document.getElementById('chat-messages'));
         }
     } catch (e) {
-        bubble.innerHTML = renderMarkdown(`❌ 请求失败: ${escapeHtml(e.message)}`);
-        showToast('回复生成失败', 'error');
+        if (e.name === 'AbortError') {
+            bubble.innerHTML = renderMarkdown(fullContent || '*（已停止生成）*');
+        } else {
+            bubble.innerHTML = renderMarkdown(`❌ 请求失败: ${escapeHtml(e.message)}`);
+            showToast('回复生成失败', 'error');
+        }
     }
 
     finalizeStreamingBubble(renderMarkdown(fullContent));
     isStreaming = false;
+    streamAbortController = null;
     sendBtn.disabled = false;
     if (stopBtn) stopBtn.classList.remove('visible');
     document.getElementById('btn-clear').style.display = '';
@@ -277,4 +284,15 @@ function sendSuggestion(chip) {
 
 function clearChat() {
     if (currentConvId) deleteConv(currentConvId);
+}
+
+function stopStreaming() {
+    if (!isStreaming || !streamAbortController) return;
+    streamAbortController.abort();
+    isStreaming = false;
+    streamAbortController = null;
+    const sendBtn = document.getElementById('btn-send');
+    const stopBtn = document.getElementById('btn-stop');
+    if (sendBtn) sendBtn.disabled = false;
+    if (stopBtn) stopBtn.classList.remove('visible');
 }

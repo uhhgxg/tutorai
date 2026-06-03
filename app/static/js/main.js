@@ -48,10 +48,23 @@ function renderMarkdown(text) {
     if (typeof marked !== 'undefined') {
         marked.setOptions({ breaks: true, gfm: true });
         const raw = marked.parse(text);
-        return addCopyButtons(raw);
+        const sanitized = typeof DOMPurify !== 'undefined'
+            ? DOMPurify.sanitize(raw, { ALLOWED_TAGS: markedAllowedTags })
+            : raw;
+        return addCopyButtons(sanitized);
     }
     return escapeHtml(text).replace(/\n/g, '<br>');
 }
+
+const markedAllowedTags = [
+    'h1','h2','h3','h4','h5','h6','br','hr',
+    'p','div','span','blockquote','pre','code',
+    'ul','ol','li','dl','dt','dd',
+    'table','thead','tbody','tr','th','td',
+    'a','img','strong','em','b','i','u','s','del','ins',
+    'sub','sup','details','summary',
+    'button',
+];
 
 function addCopyButtons(html) {
     const wrapper = document.createElement('div');

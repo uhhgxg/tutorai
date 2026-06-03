@@ -47,7 +47,7 @@
             onkeydown="handleChatKey(event)"
         ></textarea>
         <button class="btn btn-primary" onclick="sendMessage()" id="btn-send">发送</button>
-        <button class="btn btn-danger stop-btn" id="btn-stop" onclick="if(isStreaming){streamAbortController&&streamAbortController.abort();isStreaming=false;}" style="display:none">停止</button>
+        <button class="btn btn-danger stop-btn" id="btn-stop" onclick="stopStreaming()" style="display:none">停止</button>
     </div>
     <p class="input-hint">按 Enter 发送消息，Shift+Enter 换行</p>
 </div>
