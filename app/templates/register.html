@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}注册 - TutorAI{% endblock %}
+
+{% block content %}
+<div class="auth-page">
+    <div class="auth-card">
+        <h1>注册</h1>
+        <form id="register-form" onsubmit="return false;">
+            <div class="form-group">
+                <label for="username">用户名</label>
+                <input type="text" id="username" name="username" required minlength="2" placeholder="输入用户名">
+            </div>
+            <div class="form-group">
+                <label for="password">密码</label>
+                <input type="password" id="password" name="password" required minlength="4" placeholder="输入密码（至少4位）">
+            </div>
+            <button type="submit" class="btn-primary">注册</button>
+            <p class="auth-link">已有账号？<a href="/login">登录</a></p>
+        </form>
+        <div id="register-error" class="auth-error"></div>
+    </div>
+</div>
+
+<style>
+.auth-page {
+    display: flex; justify-content: center; align-items: center;
+    min-height: 80vh; padding: 2rem;
+}
+.auth-card {
+    background: var(--card-bg, #fff); border-radius: 12px;
+    padding: 2.5rem; width: 100%; max-width: 400px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+}
+.auth-card h1 { text-align: center; margin-bottom: 1.5rem; font-size: 1.5rem; }
+.form-group { margin-bottom: 1rem; }
+.form-group label { display: block; margin-bottom: 0.3rem; font-weight: 500; font-size: 0.9rem; }
+.form-group input {
+    width: 100%; padding: 0.7rem; border: 1px solid var(--border, #ddd);
+    border-radius: 6px; font-size: 1rem; box-sizing: border-box;
+    background: var(--input-bg, #fff); color: var(--text, #333);
+}
+.btn-primary {
+    width: 100%; padding: 0.75rem; background: var(--primary, #4f46e5);
+    color: #fff; border: none; border-radius: 6px; font-size: 1rem;
+    cursor: pointer; margin-top: 0.5rem;
+}
+.btn-primary:hover { opacity: 0.9; }
+.auth-link { text-align: center; margin-top: 1rem; font-size: 0.9rem; }
+.auth-link a { color: var(--primary, #4f46e5); text-decoration: none; }
+.auth-error { color: #dc3545; text-align: center; margin-top: 0.5rem; font-size: 0.9rem; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('register-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const btn = this.querySelector('button');
+    btn.disabled = true; btn.textContent = '注册中...';
+    document.getElementById('register-error').textContent = '';
+
+    try {
+        const resp = await fetch('/api/auth/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                username: document.getElementById('username').value,
+                password: document.getElementById('password').value,
+            }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || '注册失败');
+
+        setUserInfo(data.token, data.username);
+        showToast('注册成功', 'success');
+        window.location.href = '/chat';
+    } catch (err) {
+        document.getElementById('register-error').textContent = err.message;
+    } finally {
+        btn.disabled = false; btn.textContent = '注册';
+    }
+});
+</script>
+{% endblock %}

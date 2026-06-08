@@ -25,6 +25,14 @@ class Settings:
         default_factory=lambda: os.getenv("DATABASE_URL", "sqlite:///data/tutorai.db")
     )
 
+    # OCR (Tesseract)
+    tessdata_prefix: str = field(
+        default_factory=lambda: os.getenv(
+            "TESSDATA_PREFIX",
+            r"D:\tesseract\tessdata"
+        )
+    )
+
     @property
     def db_path(self) -> str:
         """从 DATABASE_URL 提取 SQLite 文件路径"""

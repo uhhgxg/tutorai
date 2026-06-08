@@ -11,6 +11,7 @@ from app.database import delete_conversation as db_delete_conv
 from app.database import add_message, update_conversation_title
 from app.models import ChatRequest, ConversationResponse, MessageResponse
 from app.services.llm_client import chat_stream, chat, build_chat_messages
+from app.auth import get_current_user
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
@@ -24,76 +25,51 @@ def get_conn():
 
 
 @router.get("/conversations", response_model=list[ConversationResponse])
-def list_conversations(conn: Connection = Depends(get_conn)):
-    """
-    获取所有对话列表
-    
-    Args:
-        conn (Connection): 数据库连接对象，通过依赖注入自动提供
-        
-    Returns:
-        list[ConversationResponse]: 对话响应对象列表，按更新时间降序排列
-    """
-    return db_list_convs(conn)
+def list_conversations(
+    conn: Connection = Depends(get_conn),
+    user: dict = Depends(get_current_user),
+):
+    return db_list_convs(conn, user["id"])
 
 
 @router.post("/conversations", response_model=ConversationResponse)
-def create_conversation(title: str = "新对话", conn: Connection = Depends(get_conn)):
-    """
-    创建新对话
-    
-    Args:
-        title (str): 对话标题，默认为"新对话"
-        conn (Connection): 数据库连接对象，通过依赖注入自动提供
-        
-    Returns:
-        ConversationResponse: 包含新创建对话信息的响应对象，包含ID、标题、创建和更新时间
-    """
-    return db_create_conv(conn, title)
+def create_conversation(
+    title: str = "新对话",
+    conn: Connection = Depends(get_conn),
+    user: dict = Depends(get_current_user),
+):
+    return db_create_conv(conn, user["id"], title)
 
 
 @router.delete("/conversations/{conv_id}")
-def delete_conversation(conv_id: str, conn: Connection = Depends(get_conn)):
-    """
-    删除指定对话
-    
-    Args:
-        conv_id (str): 要删除的对话ID
-        conn (Connection): 数据库连接对象，通过依赖注入自动提供
-        
-    Returns:
-        dict: 删除成功返回 {"ok": True}
-        
-    Raises:
-        HTTPException: 当对话不存在时抛出 404 错误
-    """
+def delete_conversation(
+    conv_id: str,
+    conn: Connection = Depends(get_conn),
+    user: dict = Depends(get_current_user),
+):
     if not db_delete_conv(conn, conv_id):
         raise HTTPException(status_code=404, detail="对话不存在")
     return {"ok": True}
 
 
 @router.get("/conversations/{conv_id}/messages", response_model=list[MessageResponse])
-def list_messages(conv_id: str, conn: Connection = Depends(get_conn)):
-    """
-    获取指定对话的所有消息
-    
-    Args:
-        conv_id (str): 对话ID
-        conn (Connection): 数据库连接对象，通过依赖注入自动提供
-        
-    Returns:
-        list[MessageResponse]: 消息响应对象列表，按创建时间升序排列
-        
-    Raises:
-        HTTPException: 当对话不存在时抛出 404 错误
-    """
+def list_messages(
+    conv_id: str,
+    conn: Connection = Depends(get_conn),
+    user: dict = Depends(get_current_user),
+):
     if not get_conversation(conn, conv_id):
         raise HTTPException(status_code=404, detail="对话不存在")
     return get_messages(conn, conv_id)
 
 
 @router.post("/conversations/{conv_id}/messages")
-def send_message(conv_id: str, req: ChatRequest, conn: Connection = Depends(get_conn)):
+def send_message(
+    conv_id: str,
+    req: ChatRequest,
+    conn: Connection = Depends(get_conn),
+    user: dict = Depends(get_current_user),
+):
     """
     发送消息并流式返回 AI 回复
     
@@ -154,7 +130,12 @@ def send_message(conv_id: str, req: ChatRequest, conn: Connection = Depends(get_
 
 
 @router.post("/conversations/{conv_id}/messages/sync")
-def send_message_sync(conv_id: str, req: ChatRequest, conn: Connection = Depends(get_conn)):
+def send_message_sync(
+    conv_id: str,
+    req: ChatRequest,
+    conn: Connection = Depends(get_conn),
+    user: dict = Depends(get_current_user),
+):
     """
     发送消息并同步返回完整的 AI 回复
     

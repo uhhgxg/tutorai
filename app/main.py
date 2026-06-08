@@ -12,7 +12,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from app.routers import chat, document, quiz, pages
+from app.routers import auth, chat, document, quiz, pages
 from app.database import get_db, get_all_chunks
 from app.services.retriever import rebuild_index
 
@@ -43,6 +43,7 @@ static_dir.mkdir(exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 # 注册路由
+app.include_router(auth.router)
 app.include_router(pages.router)
 app.include_router(chat.router)
 app.include_router(document.router)

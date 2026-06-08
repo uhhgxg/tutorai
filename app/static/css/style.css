@@ -252,6 +252,43 @@ a:hover { text-decoration: underline; }
     border-top: 1px solid rgba(255,255,255,0.06);
 }
 
+.sidebar-user {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0;
+    font-size: 0.85rem;
+    flex-wrap: wrap;
+}
+
+.sidebar-user .nav-user {
+    color: var(--sidebar-text);
+    opacity: 0.9;
+    flex: 1;
+}
+
+.sidebar-user .nav-login,
+.sidebar-user .nav-register,
+.sidebar-user .nav-logout {
+    color: var(--sidebar-text);
+    text-decoration: none;
+    opacity: 0.7;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+}
+
+.sidebar-user .nav-login:hover,
+.sidebar-user .nav-register:hover,
+.sidebar-user .nav-logout:hover {
+    opacity: 1;
+    background: rgba(255,255,255,0.08);
+}
+
+.sidebar-user .nav-register {
+    border: 1px solid rgba(255,255,255,0.2);
+}
+
 .theme-toggle {
     display: flex;
     align-items: center;

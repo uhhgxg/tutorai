@@ -17,16 +17,38 @@ def get_db() -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys = ON")
     _init_tables(conn)
+    _migrate(conn)
     return conn
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """迁移旧数据库（添加 user_id 等新字段）"""
+    cur = conn.execute("PRAGMA table_info(conversations)")
+    cols = {r[1] for r in cur.fetchall()}
+    if "user_id" not in cols:
+        conn.executescript("""
+            ALTER TABLE conversations ADD COLUMN user_id TEXT NOT NULL DEFAULT '';
+            ALTER TABLE documents ADD COLUMN user_id TEXT NOT NULL DEFAULT '';
+        """)
+        conn.commit()
 
 
 def _init_tables(conn: sqlite3.Connection) -> None:
     conn.executescript("""
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS conversations (
             id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
             title TEXT NOT NULL DEFAULT '新对话',
             created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS messages (
@@ -40,10 +62,12 @@ def _init_tables(conn: sqlite3.Connection) -> None:
 
         CREATE TABLE IF NOT EXISTS documents (
             id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
             filename TEXT NOT NULL,
             content TEXT NOT NULL,
             chunk_count INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS document_chunks (
@@ -59,20 +83,21 @@ def _init_tables(conn: sqlite3.Connection) -> None:
 
 # --- 对话操作 ---
 
-def create_conversation(conn: sqlite3.Connection, title: str = "新对话") -> dict:
+def create_conversation(conn: sqlite3.Connection, user_id: str, title: str = "新对话") -> dict:
     conv_id = uuid.uuid4().hex[:12]
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
-        (conv_id, title, now, now),
+        "INSERT INTO conversations (id, user_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+        (conv_id, user_id, title, now, now),
     )
     conn.commit()
-    return {"id": conv_id, "title": title, "created_at": now, "updated_at": now}
+    return {"id": conv_id, "user_id": user_id, "title": title, "created_at": now, "updated_at": now}
 
 
-def list_conversations(conn: sqlite3.Connection) -> list[dict]:
+def list_conversations(conn: sqlite3.Connection, user_id: str) -> list[dict]:
     rows = conn.execute(
-        "SELECT * FROM conversations ORDER BY updated_at DESC"
+        "SELECT * FROM conversations WHERE user_id = ? ORDER BY updated_at DESC",
+        (user_id,),
     ).fetchall()
     return [dict(r) for r in rows]
 
@@ -127,13 +152,13 @@ def get_messages(conn: sqlite3.Connection, conv_id: str) -> list[dict]:
 # --- 文档操作 ---
 
 def save_document(
-    conn: sqlite3.Connection, filename: str, content: str, chunks: list[str]
+    conn: sqlite3.Connection, user_id: str, filename: str, content: str, chunks: list[str]
 ) -> dict:
     doc_id = uuid.uuid4().hex[:12]
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO documents (id, filename, content, chunk_count, created_at) VALUES (?, ?, ?, ?, ?)",
-        (doc_id, filename, content, len(chunks), now),
+        "INSERT INTO documents (id, user_id, filename, content, chunk_count, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (doc_id, user_id, filename, content, len(chunks), now),
     )
     for i, chunk in enumerate(chunks):
         conn.execute(
@@ -144,17 +169,18 @@ def save_document(
     return {"id": doc_id, "filename": filename, "chunk_count": len(chunks), "created_at": now}
 
 
-def list_documents(conn: sqlite3.Connection) -> list[dict]:
+def list_documents(conn: sqlite3.Connection, user_id: str) -> list[dict]:
     rows = conn.execute(
-        "SELECT id, filename, chunk_count, created_at FROM documents ORDER BY created_at DESC"
+        "SELECT id, filename, chunk_count, created_at FROM documents WHERE user_id = ? ORDER BY created_at DESC",
+        (user_id,),
     ).fetchall()
     return [dict(r) for r in rows]
 
 
-def get_document_chunks(conn: sqlite3.Connection, doc_id: str) -> list[str]:
+def get_document_chunks(conn: sqlite3.Connection, user_id: str, doc_id: str) -> list[str]:
     rows = conn.execute(
-        "SELECT content FROM document_chunks WHERE document_id = ? ORDER BY chunk_index ASC",
-        (doc_id,),
+        "SELECT dc.content FROM document_chunks dc JOIN documents d ON d.id = dc.document_id WHERE dc.document_id = ? AND d.user_id = ? ORDER BY dc.chunk_index ASC",
+        (doc_id, user_id),
     ).fetchall()
     return [r["content"] for r in rows]
 
@@ -165,7 +191,9 @@ def get_all_chunks(conn: sqlite3.Connection) -> list[tuple[str, str]]:
     return [(r["document_id"], r["content"]) for r in rows]
 
 
-def delete_document(conn: sqlite3.Connection, doc_id: str) -> bool:
-    cur = conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
+def delete_document(conn: sqlite3.Connection, user_id: str, doc_id: str) -> bool:
+    cur = conn.execute(
+        "DELETE FROM documents WHERE id = ? AND user_id = ?", (doc_id, user_id)
+    )
     conn.commit()
     return cur.rowcount > 0

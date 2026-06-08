@@ -221,7 +221,7 @@ async function sendMessage() {
     try {
         const resp = await fetch(`${API}/conversations/${currentConvId}/messages`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...authHeaders() },
             body: JSON.stringify({ message }),
             signal: streamAbortController.signal,
         });

@@ -34,3 +34,13 @@ async def documents_page(request: Request):
 @router.get("/quiz", response_class=HTMLResponse)
 async def quiz_page(request: Request):
     return templates.TemplateResponse(request, "quiz.html")
+
+
+@router.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    return templates.TemplateResponse(request, "login.html")
+
+
+@router.get("/register", response_class=HTMLResponse)
+async def register_page(request: Request):
+    return templates.TemplateResponse(request, "register.html")

@@ -5,10 +5,60 @@
 
 const API = '/api';
 
+// ========== Auth ==========
+
+function getToken() {
+    return localStorage.getItem('tutorai_token');
+}
+
+function setToken(token) {
+    if (token) {
+        localStorage.setItem('tutorai_token', token);
+    } else {
+        localStorage.removeItem('tutorai_token');
+    }
+}
+
+function getUsername() {
+    return localStorage.getItem('tutorai_username');
+}
+
+function setUserInfo(token, username) {
+    if (token) setToken(token);
+    if (username) localStorage.setItem('tutorai_username', username);
+}
+
+function clearAuth() {
+    localStorage.removeItem('tutorai_token');
+    localStorage.removeItem('tutorai_username');
+}
+
+function isLoggedIn() {
+    return !!getToken();
+}
+
+function requireAuth() {
+    if (!isLoggedIn()) {
+        window.location.href = '/login';
+    }
+}
+
+function authHeaders() {
+    const token = getToken();
+    return token ? { 'Authorization': `Bearer ${token}` } : {};
+}
+
 // ========== API 封装 ==========
 
 async function apiGet(url, options = {}) {
-    const resp = await fetch(url, { signal: options.timeout ? timeoutSignal(options.timeout) : null });
+    const headers = { ...authHeaders(), ...options.headers };
+    const resp = await fetch(url, { headers, signal: options.timeout ? timeoutSignal(options.timeout) : null });
+    if (resp.status === 401) {
+        clearAuth();
+        if (!window.location.pathname.startsWith('/login') && !window.location.pathname.startsWith('/register')) {
+            window.location.href = '/login';
+        }
+    }
     if (!resp.ok) {
         const detail = await resp.text().catch(() => 'Unknown error');
         throw new Error(detail || `HTTP ${resp.status}`);
@@ -19,9 +69,15 @@ async function apiGet(url, options = {}) {
 async function apiPost(url, body) {
     const resp = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify(body),
     });
+    if (resp.status === 401) {
+        clearAuth();
+        if (!window.location.pathname.startsWith('/login') && !window.location.pathname.startsWith('/register')) {
+            window.location.href = '/login';
+        }
+    }
     if (!resp.ok) {
         const detail = await resp.text().catch(() => 'Unknown error');
         throw new Error(detail || `HTTP ${resp.status}`);
@@ -30,12 +86,57 @@ async function apiPost(url, body) {
 }
 
 async function apiDelete(url) {
-    const resp = await fetch(url, { method: 'DELETE' });
+    const resp = await fetch(url, { method: 'DELETE', headers: authHeaders() });
+    if (resp.status === 401) {
+        clearAuth();
+        if (!window.location.pathname.startsWith('/login') && !window.location.pathname.startsWith('/register')) {
+            window.location.href = '/login';
+        }
+    }
     if (!resp.ok) {
         const detail = await resp.text().catch(() => 'Unknown error');
         throw new Error(detail || `HTTP ${resp.status}`);
     }
     return resp.json();
+}
+
+async function apiPostForm(url, formData) {
+    const resp = await fetch(url, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: formData,
+    });
+    if (resp.status === 401) {
+        clearAuth();
+        window.location.href = '/login';
+    }
+    if (!resp.ok) {
+        const detail = await resp.text().catch(() => 'Unknown error');
+        throw new Error(detail || `HTTP ${resp.status}`);
+    }
+    return resp.json();
+}
+
+function updateNavAuth() {
+    const nav = document.getElementById('auth-nav');
+    if (!nav) return;
+    if (isLoggedIn()) {
+        nav.innerHTML = `
+            <span class="nav-user">${escapeHtml(getUsername())}</span>
+            <a href="#" onclick="logout()" class="nav-logout">退出</a>
+        `;
+    } else {
+        nav.innerHTML = `
+            <a href="/login" class="nav-login">登录</a>
+            <a href="/register" class="nav-register">注册</a>
+        `;
+    }
+}
+
+async function logout() {
+    clearAuth();
+    showToast('已退出登录', 'success');
+    window.location.href = '/login';
 }
 
 function timeoutSignal(ms) {
@@ -188,6 +289,7 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('DOMContentLoaded', () => {
     initTheme();
     createToastContainer();
+    updateNavAuth();
 
     // 侧边栏遮罩点击关闭
     const overlay = document.getElementById('sidebar-overlay');

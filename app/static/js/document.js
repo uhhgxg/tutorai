@@ -67,6 +67,7 @@ async function uploadFile(file) {
         fillEl.style.width = '70%';
         const resp = await fetch(`${API}/documents/upload`, {
             method: 'POST',
+            headers: authHeaders(),
             body: formData,
         });
 
