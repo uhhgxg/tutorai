@@ -967,6 +967,11 @@ a:hover { text-decoration: underline; }
 
 .quiz-actions { display: flex; gap: 8px; margin-top: 20px; flex-wrap: wrap; }
 
+.saved-results { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--border); }
+.saved-results details summary { user-select: none; }
+.saved-results details summary:hover { color: var(--accent) !important; }
+.saved-item:hover { background: var(--hover-bg); }
+
 /* 打印样式 */
 @media print {
     .sidebar, .chat-input-area, .btn, .quiz-tabs, .quiz-input-section { display: none !important; }
@@ -1020,3 +1025,31 @@ a:hover { text-decoration: underline; }
 @media (max-width: 768px) {
     .mobile-menu-btn { display: block; }
 }
+
+/* --- 登录/注册页面 --- */
+.auth-page {
+    display: flex; justify-content: center; align-items: center;
+    min-height: 80vh; padding: 2rem;
+}
+.auth-card {
+    background: var(--card); border-radius: 12px;
+    padding: 2.5rem; width: 100%; max-width: 400px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+}
+.auth-card h1 { text-align: center; margin-bottom: 1.5rem; font-size: 1.5rem; }
+.form-group { margin-bottom: 1rem; }
+.form-group label { display: block; margin-bottom: 0.3rem; font-weight: 500; font-size: 0.9rem; }
+.form-group input {
+    width: 100%; padding: 0.7rem; border: 1px solid var(--border);
+    border-radius: 6px; font-size: 1rem; box-sizing: border-box;
+    background: var(--card); color: var(--text);
+}
+.btn-primary {
+    width: 100%; padding: 0.75rem; background: var(--primary);
+    color: #fff; border: none; border-radius: 6px; font-size: 1rem;
+    cursor: pointer; margin-top: 0.5rem;
+}
+.btn-primary:hover { opacity: 0.9; }
+.auth-link { text-align: center; margin-top: 1rem; font-size: 0.9rem; }
+.auth-link a { color: var(--primary); text-decoration: none; }
+.auth-error { color: #dc3545; text-align: center; margin-top: 0.5rem; font-size: 0.9rem; }

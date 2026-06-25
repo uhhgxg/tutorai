@@ -1,43 +1,44 @@
-"""应用配置管理 —— 从环境变量 /.env 文件加载"""
+"""应用配置管理 —— 从环境变量 /.env 文件加载（pydantic-settings）"""
 
 import os
-from dataclasses import dataclass, field
-from dotenv import load_dotenv
 
-load_dotenv()
+from pydantic_settings import BaseSettings
 
 
-@dataclass
-class Settings:
+class Settings(BaseSettings):
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+
     # LLM
-    llm_api_key: str = field(default_factory=lambda: os.getenv("LLM_API_KEY", ""))
-    llm_base_url: str = field(
-        default_factory=lambda: os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
-    )
-    llm_model: str = field(default_factory=lambda: os.getenv("LLM_MODEL", "gpt-4o-mini"))
+    llm_api_key: str = ""
+    llm_base_url: str = "https://api.openai.com/v1"
+    llm_model: str = "gpt-4o-mini"
+
+    # JWT
+    jwt_secret_key: str = "change-me-to-a-random-secret-key"
+
+    # Embedding
+    embedding_model: str = "paraphrase-multilingual-MiniLM-L12-v2"
+
+    # CORS
+    cors_origins: list[str] = ["*"]
 
     # App
-    app_host: str = field(default_factory=lambda: os.getenv("APP_HOST", "0.0.0.0"))
-    app_port: int = field(default_factory=lambda: int(os.getenv("APP_PORT", "8000")))
+    app_host: str = "0.0.0.0"
+    app_port: int = 8000
 
     # Database
-    database_url: str = field(
-        default_factory=lambda: os.getenv("DATABASE_URL", "sqlite:///data/tutorai.db")
-    )
+    database_url: str = "sqlite:///data/tutorai.db"
 
     # OCR (Tesseract)
-    tessdata_prefix: str = field(
-        default_factory=lambda: os.getenv(
-            "TESSDATA_PREFIX",
-            r"D:\tesseract\tessdata"
-        )
+    tessdata_prefix: str = (
+        "/usr/share/tesseract-ocr/5/tessdata"
+        if os.name != "nt"
+        else r"D:\tesseract\tessdata"
     )
 
     @property
     def db_path(self) -> str:
-        """从 DATABASE_URL 提取 SQLite 文件路径"""
         return self.database_url.replace("sqlite:///", "")
-
 
 
 settings = Settings()

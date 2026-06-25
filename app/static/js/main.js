@@ -134,6 +134,9 @@ function updateNavAuth() {
 }
 
 async function logout() {
+    try {
+        await fetch(`${API}/auth/logout`, { method: 'DELETE', headers: authHeaders() });
+    } catch (_) {}
     clearAuth();
     showToast('已退出登录', 'success');
     window.location.href = '/login';

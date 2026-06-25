@@ -20,6 +20,14 @@
                       placeholder="输入知识点内容（至少 50 字），例如：&#10;&#10;光合作用包括光反应和暗反应两个阶段。光反应在类囊体膜上进行，将光能转化为 ATP 和 NADPH。暗反应在叶绿体基质中进行，利用光反应产生的 ATP 和 NADPH 将 CO₂ 固定为有机物...&#10;&#10;AI 会根据这些内容生成选择题。"></textarea>
             <div class="quiz-char-count" id="quiz-char-count">0 字</div>
             <div class="quiz-controls">
+                <label for="quiz-type">题型:</label>
+                <select id="quiz-type">
+                    <option value="choice">选择题</option>
+                    <option value="true_false">判断题</option>
+                    <option value="fill_blank">填空题</option>
+                    <option value="short_answer">简答题</option>
+                    <option value="mixed" selected>混合题型</option>
+                </select>
                 <label for="quiz-count">题目数量:</label>
                 <select id="quiz-count">
                     <option value="3">3 题</option>
@@ -44,6 +52,14 @@
                 </div>
             </div>
             <div class="quiz-controls" id="quiz-file-controls" style="display:none">
+                <label for="quiz-file-type">题型:</label>
+                <select id="quiz-file-type">
+                    <option value="choice">选择题</option>
+                    <option value="true_false">判断题</option>
+                    <option value="fill_blank">填空题</option>
+                    <option value="short_answer">简答题</option>
+                    <option value="mixed" selected>混合题型</option>
+                </select>
                 <label for="quiz-file-count">题目数量:</label>
                 <select id="quiz-file-count">
                     <option value="3">3 题</option>
@@ -62,6 +78,16 @@
             <h3>开始生成练习题</h3>
             <p>输入知识点或上传文档，AI 将自动生成高质量选择题</p>
         </div>
+    </div>
+
+    <!-- 历史记录 -->
+    <div class="saved-results">
+        <details>
+            <summary style="cursor:pointer;font-size:0.95rem;font-weight:600;padding:8px 0;color:var(--text-muted)">
+                📋 历史记录（<span id="saved-count">0</span>）
+            </summary>
+            <div id="saved-results-list" style="margin-top:4px"></div>
+        </details>
     </div>
 </div>
 {% endblock %}

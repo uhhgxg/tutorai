@@ -1,5 +1,6 @@
 """SQLite 数据库 —— 对话和文档的持久化存储"""
 
+import os
 import sqlite3
 import uuid
 from datetime import datetime, timezone
@@ -14,7 +15,10 @@ def get_db() -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path), check_same_thread=False)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
+    if os.environ.get("DB_JOURNAL_MODE", "").upper() == "DELETE":
+        conn.execute("PRAGMA journal_mode=DELETE")
+    else:
+        conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys = ON")
     _init_tables(conn)
     _migrate(conn)
@@ -76,6 +80,16 @@ def _init_tables(conn: sqlite3.Connection) -> None:
             chunk_index INTEGER NOT NULL,
             content TEXT NOT NULL,
             FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS quiz_results (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            title TEXT NOT NULL DEFAULT '',
+            result_text TEXT NOT NULL,
+            question_count INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         );
     """)
     conn.commit()
@@ -141,11 +155,18 @@ def add_message(
     return {"id": cur.lastrowid, "conversation_id": conv_id, "role": role, "content": content, "created_at": now}
 
 
-def get_messages(conn: sqlite3.Connection, conv_id: str) -> list[dict]:
-    rows = conn.execute(
-        "SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC",
-        (conv_id,),
-    ).fetchall()
+def get_messages(conn: sqlite3.Connection, conv_id: str, limit: int | None = None) -> list[dict]:
+    if limit:
+        rows = conn.execute(
+            "SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT ?",
+            (conv_id, limit),
+        ).fetchall()
+        rows.reverse()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC",
+            (conv_id,),
+        ).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -194,6 +215,45 @@ def get_all_chunks(conn: sqlite3.Connection) -> list[tuple[str, str]]:
 def delete_document(conn: sqlite3.Connection, user_id: str, doc_id: str) -> bool:
     cur = conn.execute(
         "DELETE FROM documents WHERE id = ? AND user_id = ?", (doc_id, user_id)
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+# --- 出题结果 ---
+
+def save_quiz_result(conn: sqlite3.Connection, user_id: str, title: str, result_text: str) -> dict:
+    result_id = uuid.uuid4().hex[:12]
+    now = datetime.now(timezone.utc).isoformat()
+    # 统计题目数量（按 "**数字." 或 "1. " 格式粗略统计）
+    import re
+    q_count = len(re.findall(r'(?:^|\n)\s*\d+[.、]', result_text))
+    conn.execute(
+        "INSERT INTO quiz_results (id, user_id, title, result_text, question_count, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (result_id, user_id, title, result_text, q_count, now),
+    )
+    conn.commit()
+    return {"id": result_id, "title": title, "question_count": q_count, "created_at": now}
+
+
+def list_quiz_results(conn: sqlite3.Connection, user_id: str) -> list[dict]:
+    rows = conn.execute(
+        "SELECT id, title, question_count, created_at FROM quiz_results WHERE user_id = ? ORDER BY created_at DESC",
+        (user_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_quiz_result(conn: sqlite3.Connection, user_id: str, result_id: str) -> dict | None:
+    row = conn.execute(
+        "SELECT * FROM quiz_results WHERE id = ? AND user_id = ?", (result_id, user_id)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def delete_quiz_result(conn: sqlite3.Connection, user_id: str, result_id: str) -> bool:
+    cur = conn.execute(
+        "DELETE FROM quiz_results WHERE id = ? AND user_id = ?", (result_id, user_id)
     )
     conn.commit()
     return cur.rowcount > 0

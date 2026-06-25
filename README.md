@@ -4,127 +4,176 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-green.svg)](https://fastapi.tiangolo.com/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-一个基于大语言模型的智能学习助手，支持**对话辅导**、**文档检索问答（RAG）**和**自动出题测试**。
+基于大语言模型的 AI 学习助手，支持**智能对话辅导**、**RAG 文档问答**和**自动出题测试**。
 
-## 功能特性
+---
 
-| 功能 | 说明 |
-|------|------|
-| 💬 智能对话辅导 | AI 老师多轮对话，支持流式输出，自动总结对话标题 |
-| 📄 文档检索问答 | 上传 PDF/TXT/Markdown/代码文件，TF-IDF + LLM 精准问答 |
-| 📝 自动出题 | 输入知识点或上传文档，生成选择题 + 答案解析 |
-| 🔄 流式响应 | 基于 SSE 的实时文字输出体验 |
-| 💾 持久化存储 | SQLite 保存对话历史和文档索引 |
+## 架构概览
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                     用户浏览器                           │
+│          Jinja2 模板 + 原生 JS/CSS                       │
+└──────────────┬──────────────────────────┬───────────────┘
+               │ HTTP                     │ SSE Stream
+┌──────────────▼──────────────────────────▼───────────────┐
+│                   FastAPI 应用层                          │
+│  ┌─────────┐ ┌───────────┐ ┌──────────┐ ┌───────────┐  │
+│  │ Chat API│ │Document API│ │ Quiz API │ │ Pages API │  │
+│  └────┬────┘ └─────┬─────┘ └────┬─────┘ └───────────┘  │
+│       │            │            │                        │
+│  ┌────▼────────────▼────────────▼──────────────────┐    │
+│  │               Service 层                          │    │
+│  │  llm_client   │  retriever   │  document_parser  │    │
+│  │  (Agent+Tool) │ (ChromaDB)   │  (PDF/TXT/OCR)    │    │
+│  └───────┬───────┴──────┬───────┴───────┬───────────┘    │
+│          │              │               │                │
+│  ┌───────▼──────────────▼───────────────▼───────────┐    │
+│  │               Database 层                        │    │
+│  │  SQLite: users / conversations / messages /      │    │
+│  │          documents / document_chunks / quiz      │    │
+│  └──────────────────────────────────────────────────┘    │
+└──────────────────────────────────────────────────────────┘
+```
+
+### RAG 链路（核心面试点）
+
+完整的文档检索问答流程分为 7 步：
+
+```
+① 上传文件 → ② 解析文本 → ③ 切分块
+   (PDF/TXT)  (PyMuPDF/OCR)  (RecursiveCharSplitter)
+                                    │
+                                    ▼
+④ 用户提问 ──→ ⑤ ChromaDB 向量检索 ──→ ⑥ 拼接上下文 ──→ ⑦ LLM 生成回答
+                 (余弦相似度)      (Prompt 组装)    (Streaming/Agent)
+```
+
+每一步对应的代码位置：
+
+| 步骤 | 功能 | 文件 | 关键函数 |
+|------|------|------|----------|
+| ① | 上传文件 | `app/routers/document.py` | `upload_document()` |
+| ② | 解析文本 | `app/services/document_parser.py` | `parse_document()` |
+| ③ | 切分文本块 | `app/services/document_parser.py` | `chunk_text()` |
+| ④ | 用户提问 | `app/routers/document.py` | `query_document()` |
+| ⑤ | 向量检索 | `app/services/retriever.py` | `search()` |
+| ⑥ | 拼接上下文 | `app/services/llm_client.py` | `build_chat_messages()` |
+| ⑦ | LLM 生成回答 | `app/services/llm_client.py` | `agent_chat()` / `agent_chat_stream()` |
 
 ## 技术栈
 
-**后端:** Python 3.12+ / FastAPI / Uvicorn  
-**前端:** Jinja2 模板 + 原生 JS + CSS（无前端构建工具）  
-**AI:** OpenAI 兼容 API（支持 OpenAI / DeepSeek / 通义千问等）  
-**检索:** scikit-learn TF-IDF + 余弦相似度  
-**存储:** SQLite（零配置）  
-**部署:** Docker / Docker Compose
+| 层级 | 技术 | 选型理由 |
+|------|------|----------|
+| **后端框架** | FastAPI + Uvicorn | 异步性能好，自动生成 Swagger 文档 |
+| **前端** | Jinja2 模板 + 原生 JS/CSS | 零构建工具，快速迭代，够用不重 |
+| **AI** | OpenAI 兼容 API（LangChain） | 支持 OpenAI / DeepSeek / 通义千问等 |
+| **检索** | ChromaDB + sentence-transformers 向量检索 | 语义级匹配，支持中英文混搜 |
+| **存储** | SQLite（PRAGMA foreign_keys=ON） | 零配置，文件级数据库 |
+| **认证** | JWT + bcrypt | 无状态认证，用户数据隔离 |
+| **部署** | Docker / Docker Compose | 一键部署，内含 OCR 引擎 |
+
+## 功能特性
+
+- **💬 智能对话辅导** — AI 老师多轮对话，支持 Agent 工具调用和流式输出，自动提取对话标题
+- **📄 RAG 文档问答** — 上传 PDF/TXT/代码文件，ChromaDB 向量检索 + LLM 生成精准回答，用户数据隔离
+- **📝 自动出题** — 输入知识点或上传文档，生成选择题/判断题/填空题/简答题 + 答案解析
+- **🔐 用户系统** — JWT 注册/登录，所有数据按用户隔离（Row-Level Security）
+- **🔄 流式响应** — 基于 SSE 的逐 token 实时输出
+- **🧩 Agent 工具调用** — LLM 可自主调用 `retrieve_document` 工具检索文档
 
 ## 项目结构
 
 ```
-TutorAI/
-├── app/
-│   ├── main.py                 # FastAPI 应用入口
-│   ├── config.py               # 配置管理（环境变量）
-│   ├── database.py             # SQLite 数据库操作
-│   ├── models/
-│   │   └── __init__.py         # Pydantic 请求/响应模型
-│   ├── routers/
-│   │   ├── chat.py             # 对话管理 API
-│   │   ├── document.py         # 文档上传/查询 API
-│   │   ├── quiz.py             # 出题 API
-│   │   └── pages.py            # 页面渲染
-│   ├── services/
-│   │   ├── llm_client.py       # LLM 调用封装
-│   │   ├── retriever.py        # TF-IDF 检索器
-│   │   └── document_parser.py  # PDF/TXT 解析
-│   ├── templates/              # Jinja2 HTML 模板
-│   └── static/                 # CSS + JavaScript
-├── tests/                      # 单元测试
-├── Dockerfile
-├── docker-compose.yml
-├── requirements.txt
-└── run.py                      # 一键启动
+app/
+├── main.py                 # FastAPI 应用入口（生命周期、中间件、路由注册）
+├── config.py               # 配置管理（Pydantic Settings + .env 文件）
+├── database.py             # SQLite 建表与 CRUD 操作
+├── auth.py                 # JWT 令牌生成/验证 + bcrypt 密码哈希
+├── models/__init__.py      # Pydantic 请求/响应模型（含校验规则）
+├── routers/
+│   ├── chat.py             # 对话 CRUD + 流式/同步消息发送
+│   ├── document.py         # 文档上传/检索/删除 API（RAG 入口）
+│   ├── quiz.py             # 出题生成/保存/历史 API
+│   └── pages.py            # 页面路由（首页、登录、注册、出题）
+├── services/
+│   ├── llm_client.py       # LLM 调用封装（对话/流式/Agent/出题）
+│   ├── retriever.py        # ChromaDB 向量检索 + 语义匹配
+│   ├── document_parser.py  # PDF(PyMuPDF+OCR)/TXT 文本提取
+│   ├── tools.py            # LangChain Agent 工具定义
+│   └── rate_limiter.py     # 请求频率限制
+├── templates/              # Jinja2 HTML 模板
+└── static/                 # CSS + JavaScript
 ```
 
 ## 快速开始
 
-### 1. 环境准备
+### 本地运行
 
 ```bash
-# Python 3.12+
-python --version
-
-# 克隆项目
-cd TutorAI
-```
-
-### 2. 配置 API Key
-
-```bash
-# 复制配置文件
+# 1. 配置
 cp .env.example .env
+# 编辑 .env: LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 
-# 编辑 .env，填入你的 API Key
-# LLM_API_KEY=sk-your-key-here
-# LLM_BASE_URL=https://api.openai.com/v1  (或 DeepSeek: https://api.deepseek.com/v1)
-# LLM_MODEL=gpt-4o-mini
-```
-
-### 3. 安装运行
-
-```bash
-# 安装依赖
+# 2. 安装
 pip install -r requirements.txt
 
-# 启动（默认 http://localhost:8000）
+# 3. 启动（默认 http://localhost:8000）
 python run.py
 ```
 
-### 4. 使用 Docker
+### Docker 部署
 
 ```bash
-# 创建 .env 文件后
+# 配置 API Key
+cp .env.example .env
+# 编辑 .env
+
+# 一键启动
 docker compose up -d
 
-# 访问 http://localhost:8000
+# 查看日志
+docker compose logs -f
+
+# 停止
+docker compose down
+```
+
+## 测试
+
+```bash
+# 全部 44 个测试
+pytest tests/ -v
+
+# 单独测试模块
+pytest tests/test_retriever.py -v    # 检索器测试
+pytest tests/test_database.py -v     # 数据库测试
+pytest tests/test_chat_api.py -v     # 聊天 API 测试
+pytest tests/test_document_api.py -v # 文档 API 测试
+pytest tests/test_quiz_api.py -v     # 出题 API 测试
 ```
 
 ## API 文档
 
-启动后访问 `http://localhost:8000/docs` 查看 Swagger API 文档。
+启动后访问 `http://localhost:8000/docs` 查看 Swagger 文档。
 
-### 主要接口
+### 核心接口
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/conversations` | 获取对话列表 |
-| POST | `/api/conversations` | 创建新对话 |
-| GET | `/api/conversations/{id}/messages` | 获取对话消息 |
-| POST | `/api/conversations/{id}/messages` | 发送消息（流式） |
-| DELETE | `/api/conversations/{id}` | 删除对话 |
+| POST | `/api/auth/register` | 用户注册 |
+| POST | `/api/auth/login` | 用户登录 |
+| GET | `/api/conversations` | 对话列表 |
+| POST | `/api/conversations/{id}/messages` | 发送消息（流式 SSE） |
 | POST | `/api/documents/upload` | 上传文档 |
-| GET | `/api/documents` | 获取文档列表 |
-| POST | `/api/documents/{id}/query` | 查询文档内容 |
-| DELETE | `/api/documents/{id}` | 删除文档 |
+| POST | `/api/documents/{id}/query` | RAG 文档问答 |
 | POST | `/api/quiz/generate` | 生成练习题 |
+| GET | `/health` | 健康检查（Docker 用） |
 
-## 运行测试
+## 支持的 LLM 提供商
 
-```bash
-pytest tests/ -v
-```
-
-## 支持的模型提供商
-
-| 提供商 | LLM_BASE_URL |
-|--------|-------------|
+| 提供商 | `LLM_BASE_URL` |
+|--------|----------------|
 | OpenAI | `https://api.openai.com/v1` |
 | DeepSeek | `https://api.deepseek.com/v1` |
 | 通义千问 | `https://dashscope.aliyuncs.com/compatible-mode/v1` |

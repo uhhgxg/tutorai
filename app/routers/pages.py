@@ -44,3 +44,13 @@ async def login_page(request: Request):
 @router.get("/register", response_class=HTMLResponse)
 async def register_page(request: Request):
     return templates.TemplateResponse(request, "register.html")
+
+
+@router.get("/404", response_class=HTMLResponse)
+async def not_found_page(request: Request):
+    return templates.TemplateResponse(request, "404.html")
+
+
+@router.get("/403", response_class=HTMLResponse)
+async def forbidden_page(request: Request):
+    return templates.TemplateResponse(request, "403.html")

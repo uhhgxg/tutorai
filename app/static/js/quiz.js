@@ -5,6 +5,7 @@
 
 let quizMode = 'text';
 let quizFile = null;
+let lastResultText = '';  // 最后生成的题目原文，供保存用
 
 // ========== 初始化 ==========
 
@@ -12,6 +13,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const textarea = document.getElementById('quiz-content');
     if (textarea) {
         textarea.addEventListener('input', updateCharCount);
+    }
+    loadSavedResults();
+    // 未登录时跳转
+    if (!isLoggedIn()) {
+        window.location.href = '/login';
     }
 });
 
@@ -74,11 +80,13 @@ async function generateQuiz() {
     `;
     if (genBtn) genBtn.disabled = true;
 
+    const qtype = document.getElementById('quiz-type').value;
+
     try {
         await streamQuizResult(`${API}/quiz/generate`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content, question_count: count }),
+            headers: { 'Content-Type': 'application/json', ...authHeaders() },
+            body: JSON.stringify({ content, question_count: count, question_type: qtype }),
         }, resultDiv);
     } catch (e) {
         resultDiv.innerHTML = `
@@ -101,6 +109,7 @@ async function generateQuizFromFile() {
     }
 
     const count = parseInt(document.getElementById('quiz-file-count').value);
+    const qtype = document.getElementById('quiz-file-type').value;
     const resultDiv = document.getElementById('quiz-result');
     const genBtn = document.getElementById('btn-generate-file');
 
@@ -114,12 +123,12 @@ async function generateQuizFromFile() {
 
     const formData = new FormData();
     formData.append('file', quizFile);
-    formData.append('question_count', count);
 
     try {
-        await streamQuizResult(`${API}/quiz/generate-from-file?question_count=${count}`, {
+        await streamQuizResult(`${API}/quiz/generate-from-file?question_count=${count}&question_type=${qtype}`, {
             method: 'POST',
             body: formData,
+            headers: authHeaders(),
         }, resultDiv);
     } catch (e) {
         resultDiv.innerHTML = `
@@ -137,6 +146,11 @@ async function generateQuizFromFile() {
 
 async function streamQuizResult(url, fetchOptions, resultDiv) {
     const resp = await fetch(url, fetchOptions);
+    if (resp.status === 401) {
+        clearAuth();
+        window.location.href = '/login';
+        return;
+    }
     if (!resp.ok) {
         const errText = await resp.text();
         throw new Error(errText);
@@ -155,10 +169,14 @@ async function streamQuizResult(url, fetchOptions, resultDiv) {
         resultDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
 
+    // 保存全文，供保存按钮使用
+    lastResultText = fullText;
+
     // 生成完成后添加操作按钮
     const actionsDiv = document.createElement('div');
     actionsDiv.className = 'quiz-actions';
     actionsDiv.innerHTML = `
+        <button class="btn btn-sm btn-primary" onclick="saveResult()">💾 保存结果</button>
         <button class="btn btn-sm btn-secondary" onclick="regenerateQuiz()">🔄 重新生成</button>
         <button class="btn btn-sm btn-secondary" onclick="toggleAnswers(this)">👁️ 显示答案</button>
         <button class="btn btn-sm btn-ghost" onclick="window.print()">🖨️ 打印</button>
@@ -201,4 +219,103 @@ function toggleAnswers(btn) {
     });
 
     btn.textContent = showing ? '🙈 隐藏答案' : '👁️ 显示答案';
+}
+
+
+// ========== 保存结果 ==========
+
+async function saveResult() {
+    if (!lastResultText) {
+        showToast('没有可保存的结果', 'warning');
+        return;
+    }
+    try {
+        const resp = await fetch(`${API}/quiz/results`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders() },
+            body: JSON.stringify({
+                title: document.getElementById('quiz-content')?.value.trim().slice(0, 30) || '练习题',
+                result_text: lastResultText,
+            }),
+        });
+        if (resp.status === 401) { clearAuth(); window.location.href = '/login'; return; }
+        if (!resp.ok) throw new Error((await resp.text()) || '保存失败');
+        showToast('✅ 已保存到历史记录', 'success');
+        loadSavedResults();
+    } catch (e) {
+        showToast('保存失败: ' + e.message, 'error');
+    }
+}
+
+// ========== 历史记录 ==========
+
+async function loadSavedResults() {
+    const list = document.getElementById('saved-results-list');
+    if (!list) return;
+
+    try {
+        const resp = await fetch(`${API}/quiz/results`, { headers: authHeaders() });
+        if (!resp.ok) { list.innerHTML = ''; return; }
+        const results = await resp.json();
+
+        if (results.length === 0) {
+            document.getElementById('saved-count').textContent = '0';
+        list.innerHTML = '<div style="color:var(--text-muted);padding:8px;font-size:0.85rem">暂无保存记录</div>';
+            return;
+        }
+
+        document.getElementById('saved-count').textContent = results.length;
+        list.innerHTML = results.map(r => `
+            <div class="saved-item" onclick="openSavedResult('${r.id}')" style="cursor:pointer;padding:8px 10px;border-radius:var(--radius-sm);display:flex;justify-content:space-between;align-items:center;gap:8px">
+                <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.9rem">${escapeHtml(r.title)}</span>
+                <span style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap">
+                    ${r.question_count} 题 · ${formatTime(r.created_at)}
+                </span>
+            </div>
+        `).join('');
+    } catch (e) {
+        list.innerHTML = '<div style="color:var(--text-muted);padding:8px;font-size:0.85rem">加载失败</div>';
+    }
+}
+
+async function openSavedResult(resultId) {
+    const resultDiv = document.getElementById('quiz-result');
+    resultDiv.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted)">加载中...</div>';
+
+    try {
+        const resp = await fetch(`${API}/quiz/results/${resultId}`, { headers: authHeaders() });
+        if (!resp.ok) throw new Error('加载失败');
+        const result = await resp.json();
+        resultDiv.innerHTML = renderMarkdown(result.result_text);
+
+        const actionsDiv = document.createElement('div');
+        actionsDiv.className = 'quiz-actions';
+        actionsDiv.innerHTML = `
+            <button class="btn btn-sm btn-secondary" onclick="deleteSavedResult('${resultId}')" style="color:var(--danger)">🗑️ 删除</button>
+            <button class="btn btn-sm btn-secondary" onclick="toggleAnswers(this)">👁️ 显示答案</button>
+        `;
+        resultDiv.appendChild(actionsDiv);
+        resultDiv.scrollIntoView({ behavior: 'smooth' });
+    } catch (e) {
+        resultDiv.innerHTML = `<div style="color:var(--danger);padding:20px">❌ ${escapeHtml(e.message)}</div>`;
+    }
+}
+
+async function deleteSavedResult(resultId) {
+    if (!confirm('确定删除这份练习吗？')) return;
+    try {
+        const resp = await fetch(`${API}/quiz/results/${resultId}`, { method: 'DELETE', headers: authHeaders() });
+        if (!resp.ok) throw new Error('删除失败');
+        showToast('已删除', 'success');
+        document.getElementById('quiz-result').innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">📝</div>
+                <h3>开始生成练习题</h3>
+                <p>输入知识点或上传文档，AI 将自动生成高质量选择题</p>
+            </div>
+        `;
+        loadSavedResults();
+    } catch (e) {
+        showToast('删除失败: ' + e.message, 'error');
+    }
 }

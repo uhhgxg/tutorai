@@ -10,7 +10,8 @@ from app.database import list_conversations as db_list_convs
 from app.database import delete_conversation as db_delete_conv
 from app.database import add_message, update_conversation_title
 from app.models import ChatRequest, ConversationResponse, MessageResponse
-from app.services.llm_client import chat_stream, chat, build_chat_messages
+from app.services.llm_client import chat_stream, chat, agent_chat_stream, agent_chat, build_chat_messages, LLMError
+from app.services.tools import AGENT_TOOLS
 from app.auth import get_current_user
 
 router = APIRouter(prefix="/api", tags=["chat"])
@@ -100,7 +101,7 @@ def send_message(
     add_message(conn, conv_id, "user", req.message)
 
     # 如果是第一条消息，用其内容前 30 字作为对话标题
-    history = get_messages(conn, conv_id)
+    history = get_messages(conn, conv_id, limit=20)
     if len(history) == 1:
         title = req.message[:30] + ("..." if len(req.message) > 30 else "")
         update_conversation_title(conn, conv_id, title)
@@ -120,7 +121,7 @@ def send_message(
         Yields:
             str: AI 回复的每个 token
         """
-        for token in chat_stream(msgs):
+        for token in agent_chat_stream(msgs, tools=AGENT_TOOLS):
             full_response.append(token)
             yield token
         # 流结束后保存 AI 回复
@@ -164,7 +165,7 @@ def send_message_sync(
 
     add_message(conn, conv_id, "user", req.message)
 
-    history = get_messages(conn, conv_id)
+    history = get_messages(conn, conv_id, limit=20)
     if len(history) == 1:
         title = req.message[:30] + ("..." if len(req.message) > 30 else "")
         update_conversation_title(conn, conv_id, title)
@@ -174,6 +175,9 @@ def send_message_sync(
         req.message,
     )
 
-    reply = chat(msgs)
+    try:
+        reply = agent_chat(msgs, tools=AGENT_TOOLS)
+    except LLMError as e:
+        raise HTTPException(status_code=503, detail=str(e))
     add_message(conn, conv_id, "assistant", reply)
     return {"reply": reply}

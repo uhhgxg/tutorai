@@ -1,14 +1,15 @@
-"""文档检索器 —— TF-IDF 字面关键词检索（scikit-learn）
+"""文档检索器 —— ChromaDB 向量检索（sentence-transformers 本地嵌入）
 
-不依赖任何外部向量数据库，使用字符级 n-gram TF-IDF 进行文本匹配，
-天然支持中英文混合场景。数据存储在 SQLite 中，检索在进程内完成。
+从 TF-IDF 升级为向量检索，支持语义级匹配，无需外部 API 调用。
+所有向量数据持久化在 ./data/chroma/ 目录中。
 """
 
 import logging
+from collections import defaultdict
 
-import numpy as np
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+import chromadb
+from chromadb.config import Settings
+from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 from langchain_core.documents import Document
 
 from app.config import settings
@@ -17,42 +18,46 @@ logger = logging.getLogger(__name__)
 
 
 class Retriever:
-    """TF-IDF 文本检索引擎"""
+    """ChromaDB 向量检索引擎"""
 
-    def __init__(self):
-        self._vectorizer: TfidfVectorizer | None = None
-        self._tfidf_matrix: np.ndarray | None = None
-        self._texts: list[str] = []
-        self._metadatas: list[dict] = []
+    def __init__(self, persist_dir: str = "./data/chroma", client=None):
+        self._client = client or chromadb.PersistentClient(
+            path=str(persist_dir),
+            settings=Settings(anonymized_telemetry=False),
+        )
+        self._embed_fn = SentenceTransformerEmbeddingFunction(
+            model_name=settings.embedding_model,
+        )
+        self._collection = self._client.get_or_create_collection(
+            name="document_chunks",
+            embedding_function=self._embed_fn,
+            metadata={"hnsw:space": "cosine"},
+        )
 
-    def index(self, doc_chunks: list[tuple[str, str]]) -> None:
-        """重建 TF-IDF 索引。
+    def index(self, doc_id: str, user_id: str, chunks: list[str]) -> None:
+        """将文档切片写入向量索引。
 
         Args:
-            doc_chunks: [(doc_id, chunk_content), ...]
+            doc_id: 文档 ID。
+            user_id: 所属用户 ID。
+            chunks: 文本切片列表。
         """
-        if not doc_chunks:
+        if not chunks:
             return
-
-        doc_ids, contents = zip(*doc_chunks)
-        self._metadatas = [{"doc_id": did} for did in doc_ids]
-
-        try:
-            self._vectorizer = TfidfVectorizer(
-                analyzer="char",
-                ngram_range=(1, 3),
-            )
-            self._tfidf_matrix = self._vectorizer.fit_transform(contents)
-            self._texts = list(contents)
-            logger.info("TF-IDF 索引重建完成，共 %d 个分块", len(doc_chunks))
-        except Exception as e:
-            logger.error("TF-IDF 索引重建失败: %s", e)
+        self.remove_document(doc_id)
+        ids = [f"{doc_id}_{i}" for i in range(len(chunks))]
+        metadatas = [{"doc_id": doc_id, "user_id": user_id} for _ in chunks]
+        self._collection.add(
+            documents=chunks, ids=ids, metadatas=metadatas,
+        )
+        logger.info("已索引文档 %s（%d 个分块）", doc_id, len(chunks))
 
     def search(
         self,
         query: str,
         top_k: int = 5,
         doc_id: str | None = None,
+        user_id: str | None = None,
     ) -> list[Document]:
         """搜索最相关的分块。
 
@@ -60,37 +65,74 @@ class Retriever:
             query: 用户问题。
             top_k: 返回结果数。
             doc_id: 可选，限定搜索某个文档。
+            user_id: 可选，按用户隔离。
 
         Returns:
             list[Document]: page_content 为文本，metadata 含 score 和 doc_id。
         """
-        if self._vectorizer is None or self._tfidf_matrix is None:
-            return []
+        where_filters = {}
+        if doc_id:
+            where_filters["doc_id"] = doc_id
+        if user_id:
+            where_filters["user_id"] = user_id
 
         try:
-            query_vec = self._vectorizer.transform([query])
-            scores = cosine_similarity(query_vec, self._tfidf_matrix).flatten()
-
-            top_indices = scores.argsort()[-top_k:][::-1]
-
-            docs = []
-            for idx in top_indices:
-                if scores[idx] <= 0:
-                    continue
-                meta = dict(self._metadatas[idx])
-                if doc_id and meta.get("doc_id") != doc_id:
-                    continue
-                docs.append(Document(
-                    page_content=self._texts[idx],
-                    metadata={
-                        "score": float(scores[idx]),
-                        "doc_id": meta.get("doc_id", ""),
-                    },
-                ))
-            return docs
+            results = self._collection.query(
+                query_texts=[query],
+                n_results=top_k,
+                where=where_filters or None,
+            )
         except Exception as e:
-            logger.error("TF-IDF 搜索失败: %s", e)
+            logger.debug("ChromaDB 查询失败（可能索引为空）: %s", e)
             return []
+
+        docs = []
+        if not results.get("documents") or not results["documents"][0]:
+            return docs
+
+        documents = results["documents"][0]
+        distances = results.get("distances", [[]])[0] or [0.0] * len(documents)
+        metadatas = results.get("metadatas", [[]])[0] or [{}] * len(documents)
+
+        for i, content in enumerate(documents):
+            score = 1.0 - float(distances[i]) if i < len(distances) else 0.0
+            meta = metadatas[i] if i < len(metadatas) else {}
+            docs.append(Document(
+                page_content=content,
+                metadata={
+                    "score": score,
+                    "doc_id": meta.get("doc_id", ""),
+                },
+            ))
+        return docs
+
+    def remove_document(self, doc_id: str) -> None:
+        """删除指定文档的所有切片"""
+        try:
+            self._collection.delete(where={"doc_id": doc_id})
+            logger.info("已删除文档 %s 的索引", doc_id)
+        except Exception as e:
+            logger.debug("删除文档索引 %s 时出错: %s", doc_id, e)
+
+    def rebuild_index(self, doc_chunks: list[tuple[str, str]]) -> None:
+        """兼容接口：清空并重建所有文档的索引"""
+        if not doc_chunks:
+            return
+        try:
+            self._client.delete_collection("document_chunks")
+        except Exception:
+            pass
+        self._collection = self._client.get_or_create_collection(
+            name="document_chunks",
+            embedding_function=self._embed_fn,
+            metadata={"hnsw:space": "cosine"},
+        )
+        groups = defaultdict(list)
+        for doc_id, content in doc_chunks:
+            groups[doc_id].append(content)
+        for doc_id, chunks in groups.items():
+            self.index(doc_id, user_id="unknown", chunks=chunks)
+        logger.info("重建索引完成，共 %d 个分块", len(doc_chunks))
 
 
 # ── 全局单例 ──────────────────────────────────────────────
@@ -103,12 +145,13 @@ def get_retriever() -> Retriever:
 
 
 def rebuild_index(doc_chunks: list[tuple[str, str]]) -> None:
-    _retriever.index(doc_chunks)
+    _retriever.rebuild_index(doc_chunks)
 
 
 def search_chunks(
     query: str,
     top_k: int = 5,
     doc_id: str | None = None,
+    user_id: str | None = None,
 ) -> list[Document]:
-    return _retriever.search(query, top_k, doc_id=doc_id)
+    return _retriever.search(query, top_k, doc_id=doc_id, user_id=user_id)

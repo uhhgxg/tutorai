@@ -92,16 +92,14 @@ def _ocr_fallback(image_pages: list[tuple[int, bytes]]) -> str:
         logger.warning("pytesseract 或 Pillow 未安装，跳过 OCR 降级")
         return ""
 
-    # 配置 Tesseract 路径（默认安装路径）
-    tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+    # 自动检测 Tesseract 路径（支持 Windows 和 Linux）
+    if os.name == "nt":  # Windows
+        fallback = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+    else:  # Linux / macOS（Docker 中默认位于 /usr/bin/tesseract）
+        fallback = "/usr/bin/tesseract"
+    tesseract_cmd = fallback
     if os.path.exists(tesseract_cmd):
         pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
-
-    # 配置 TESSDATA_PREFIX（中文语言包路径）
-    tessdata_prefix = r"D:\tesseract\tessdata"
-    if settings.tessdata_prefix and os.path.exists(settings.tessdata_prefix):
-        tessdata_prefix = settings.tessdata_prefix
-    os.environ["TESSDATA_PREFIX"] = tessdata_prefix
 
     # 检查 tesseract 是否可用
     try:
