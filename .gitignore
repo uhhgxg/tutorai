@@ -12,5 +12,13 @@ venv/
 .idea/
 output/
 *.log
+.coverage*
+.claude/
+.workbuddy/
+.tutorai_test_*/
 tutorai-tech-analysis.html
+tutorai.log
+/产品经理提示词.md
+/TutorAI-项目解析文档.md
+/tutoral-tech-learning.html
 =*
