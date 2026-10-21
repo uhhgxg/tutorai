@@ -1,22 +1,23 @@
 """认证 API —— 注册、登录、退出、获取当前用户信息"""
 
-import uuid
-from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field
 from sqlite3 import Connection
 
-from app.database import get_db
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel, Field
+
 from app.auth import (
-    hash_password,
-    verify_password,
-    create_token,
-    validate_password_strength,
-    get_current_user,
     blacklist_token,
+    create_token,
+    get_current_user,
+    hash_password,
+    validate_password_strength,
+    verify_password,
 )
+from app.db.engine import get_db
+from app.db.user_repo import check_username_exists, get_user_by_username
+from app.db.user_repo import create_user as repo_create_user
 from app.services.rate_limiter import login_limiter, register_limiter
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -46,63 +47,37 @@ class UserResponse(BaseModel):
     created_at: str
 
 
-# ── 依赖注入：获取数据库连接 ──
-
-def get_conn():
-    conn = get_db()
-    try:
-        yield conn
-    finally:
-        conn.close()
-
-
 # ── 路由 ──
 
 @router.post("/register", response_model=AuthResponse)
-def register(req: RegisterRequest, request: Request, conn: Connection = Depends(get_conn)):
+def register(req: RegisterRequest, request: Request, conn: Connection = Depends(get_db)):
     """注册新用户"""
     register_limiter.check(request)
 
-    # 密码强度校验
     err = validate_password_strength(req.password)
     if err:
         raise HTTPException(status_code=400, detail=err)
 
-    # 检查用户名是否已存在
-    existing = conn.execute(
-        "SELECT id FROM users WHERE username = ?", (req.username,)
-    ).fetchone()
-    if existing:
+    if check_username_exists(conn, req.username):
         raise HTTPException(status_code=409, detail="用户名已存在")
 
-    user_id = uuid.uuid4().hex[:12]
-    now = datetime.now(timezone.utc).isoformat()
     password_hash = hash_password(req.password)
-
-    conn.execute(
-        "INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)",
-        (user_id, req.username, password_hash, now),
-    )
-    conn.commit()
-
-    token = create_token(user_id)
-    return AuthResponse(token=token, user_id=user_id, username=req.username)
+    user = repo_create_user(conn, req.username, password_hash)
+    token = create_token(user["id"])
+    return AuthResponse(token=token, user_id=user["id"], username=req.username)
 
 
 @router.post("/login", response_model=AuthResponse)
-def login(req: LoginRequest, request: Request, conn: Connection = Depends(get_conn)):
+def login(req: LoginRequest, request: Request, conn: Connection = Depends(get_db)):
     """用户登录"""
     login_limiter.check(request)
 
-    row = conn.execute(
-        "SELECT id, username, password_hash FROM users WHERE username = ?",
-        (req.username,),
-    ).fetchone()
-    if not row or not verify_password(req.password, row["password_hash"]):
+    user = get_user_by_username(conn, req.username)
+    if not user or not verify_password(req.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
 
-    token = create_token(row["id"])
-    return AuthResponse(token=token, user_id=row["id"], username=row["username"])
+    token = create_token(user["id"])
+    return AuthResponse(token=token, user_id=user["id"], username=user["username"])
 
 
 @router.delete("/logout")

@@ -148,14 +148,83 @@ function timeoutSignal(ms) {
 
 // ========== Markdown 渲染 ==========
 
+/**
+ * 预处理：把 LLM 常见的松散括号格式统一成标准 LaTeX 定界符
+ */
+function normalizeLatexDelimiters(text) {
+    // 格式1: 松散块级 — [ 单独一行 + LaTeX内容 + ] 单独一行
+    text = text.replace(
+        /(^|\n)\s*\[\s*\n([\s\S]*?\\[a-zA-Z][\s\S]*?)\n\s*\]\s*(\n|$)/g,
+        (_, before, math, after) => {
+            console.log('[KaTeX] 匹配到松散块级公式:', math.trim().substring(0, 60));
+            return before + '\\[' + math.trim() + '\\]' + after;
+        }
+    );
+    // 格式2: 松散块级变体 — [ 后面直接跟内容（同一行），] 单独一行
+    text = text.replace(
+        /(^|\n)\s*\[([^\[\n]*\\[a-zA-Z][\s\S]*?)\n\s*\]\s*(\n|$)/g,
+        (_, before, math, after) => {
+            console.log('[KaTeX] 匹配到松散块级变体:', math.trim().substring(0, 60));
+            return before + '\\[' + math.trim() + '\\]' + after;
+        }
+    );
+    // 格式3: 松散行内 — ( 含LaTeX命令 ) 同一行内
+    text = text.replace(
+        /\(\s*([^()\n]*\\[a-zA-Z][^()\n]*)\s*\)/g,
+        (_, math) => {
+            // 去掉末尾可能误吞的反斜杠（来自下一个公式的开头）
+            const cleaned = math.trim().replace(/\\+$/, '');
+            console.log('[KaTeX] 匹配到松散行内公式:', cleaned.substring(0, 60));
+            return '\\(' + cleaned + '\\)';
+        }
+    );
+    return text;
+}
+
 function renderMarkdown(text) {
     if (typeof marked !== 'undefined') {
         marked.setOptions({ breaks: true, gfm: true });
+
+        // 0. 先规范化定界符
+        text = normalizeLatexDelimiters(text);
+
+        // 1. 提取 LaTeX 公式，用占位符替代，避免被 marked 破坏
+        const latexBlocks = [];
+        // 块级公式 \[...\]（跨行匹配）
+        text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, math) => {
+            latexBlocks.push({ display: true, tex: math.trim() });
+            return `%%LATEX_${latexBlocks.length - 1}%%`;
+        });
+        // 行内公式 \(...\)
+        text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, math) => {
+            latexBlocks.push({ display: false, tex: math.trim() });
+            return `%%LATEX_${latexBlocks.length - 1}%%`;
+        });
+        console.log('[KaTeX] 共提取到', latexBlocks.length, '个公式块');
+
         const raw = marked.parse(text);
         const sanitized = typeof DOMPurify !== 'undefined'
             ? DOMPurify.sanitize(raw, { ALLOWED_TAGS: markedAllowedTags })
             : raw;
-        return addCopyButtons(sanitized);
+
+        // 2. 将占位符替换为 KaTeX 渲染结果
+        let html = sanitized;
+        if (typeof katex !== 'undefined' && latexBlocks.length > 0) {
+            html = html.replace(/%%LATEX_(\d+)%%/g, (_, idx) => {
+                const block = latexBlocks[parseInt(idx)];
+                try {
+                    return katex.renderToString(block.tex, {
+                        displayMode: block.display,
+                        throwOnError: false,
+                        errorColor: '#cc0000',
+                    });
+                } catch (e) {
+                    return `<span style="color:red">公式错误: ${escapeHtml(block.tex)}</span>`;
+                }
+            });
+        }
+
+        return addCopyButtons(html);
     }
     return escapeHtml(text).replace(/\n/g, '<br>');
 }
@@ -168,6 +237,10 @@ const markedAllowedTags = [
     'a','img','strong','em','b','i','u','s','del','ins',
     'sub','sup','details','summary',
     'button',
+    // KaTeX 渲染所需元素
+    'math','annotation','semantics','mrow','mi','mo','mn','msup','msub',
+    'mfrac','mover','munder','mspace','mtext','msqrt','mroot',
+    'svg','path','rect','line','circle','g','defs','use',
 ];
 
 function addCopyButtons(html) {

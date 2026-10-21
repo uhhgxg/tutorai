@@ -1,9 +1,11 @@
 """聊天 API 测试"""
+from datetime import UTC
+
 from fastapi.testclient import TestClient
 
-from app.main import app
-from app.database import get_db
 from app.auth import create_token, hash_password
+from app.db.engine import get_db_connection as get_db
+from app.main import app
 
 client = TestClient(app)
 
@@ -12,10 +14,10 @@ _TEST_USER_ID = "chat-test-user"
 
 def setup_module():
     """创建测试用户"""
-    from datetime import datetime, timezone
+    from datetime import datetime
     conn = get_db()
     conn.execute("DELETE FROM users")
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     conn.execute(
         "INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)",
         (_TEST_USER_ID, "chatuser", hash_password("test1234"), now),

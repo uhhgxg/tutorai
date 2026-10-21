@@ -1,11 +1,12 @@
 /* ============================================================
    TutorAI — 出题测试功能
-   功能: 文本出题 / 文件出题 / 流式展示 / 答案显示 / 重新生成
+   功能: 文本出题 / 知识库出题 / 文件出题 / 流式展示 / 答案显示 / 重新生成
    ============================================================ */
 
 let quizMode = 'text';
 let quizFile = null;
 let lastResultText = '';  // 最后生成的题目原文，供保存用
+let lastQuestionCount = 0;  // 最后一次出题的题数
 
 // ========== 初始化 ==========
 
@@ -15,6 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
         textarea.addEventListener('input', updateCharCount);
     }
     loadSavedResults();
+    loadDocList();
     // 未登录时跳转
     if (!isLoggedIn()) {
         window.location.href = '/login';
@@ -41,21 +43,34 @@ function switchQuizTab(mode) {
     if (mode === 'text') {
         document.querySelectorAll('.quiz-tab')[0].classList.add('active');
         document.getElementById('quiz-text-mode').style.display = 'block';
-    } else {
+    } else if (mode === 'kb') {
         document.querySelectorAll('.quiz-tab')[1].classList.add('active');
+        document.getElementById('quiz-kb-mode').style.display = 'block';
+        loadDocList();  // 每次切换时刷新文档列表
+    } else {
+        document.querySelectorAll('.quiz-tab')[2].classList.add('active');
         document.getElementById('quiz-file-mode').style.display = 'block';
     }
 }
 
-// ========== 文件选择 ==========
+// ========== 加载文档列表（知识库出题用） ==========
 
-function handleQuizFileSelect(event) {
-    quizFile = event.target.files[0];
-    const controls = document.getElementById('quiz-file-controls');
-    const fileName = document.getElementById('quiz-file-name');
-    if (quizFile && controls) {
-        controls.style.display = 'flex';
-        if (fileName) fileName.textContent = `已选择: ${quizFile.name}`;
+async function loadDocList() {
+    const select = document.getElementById('quiz-kb-doc');
+    if (!select) return;
+
+    try {
+        const resp = await fetch(`${API}/documents`, { headers: authHeaders() });
+        if (!resp.ok) return;
+        const docs = await resp.json();
+
+        // 保留"全部文档"选项
+        select.innerHTML = '<option value="">全部文档</option>';
+        docs.forEach(doc => {
+            select.innerHTML += `<option value="${doc.id}">${escapeHtml(doc.filename)}（${doc.chunk_count} 片段）</option>`;
+        });
+    } catch (e) {
+        // 静默失败，用户仍可手动输入
     }
 }
 
@@ -69,6 +84,7 @@ async function generateQuiz() {
     }
 
     const count = parseInt(document.getElementById('quiz-count').value);
+    lastQuestionCount = count;
     const resultDiv = document.getElementById('quiz-result');
     const genBtn = document.getElementById('btn-generate');
 
@@ -100,6 +116,65 @@ async function generateQuiz() {
     if (genBtn) genBtn.disabled = false;
 }
 
+// ========== 知识库生成 ==========
+
+async function generateQuizFromKB() {
+    const topic = document.getElementById('quiz-kb-topic').value.trim();
+    if (!topic) {
+        showToast('请输入知识点描述', 'warning');
+        return;
+    }
+
+    const docId = document.getElementById('quiz-kb-doc').value || null;
+    const count = parseInt(document.getElementById('quiz-kb-count').value);
+    lastQuestionCount = count;
+    const qtype = document.getElementById('quiz-kb-type').value;
+    const resultDiv = document.getElementById('quiz-result');
+    const genBtn = document.getElementById('btn-generate-kb');
+
+    resultDiv.innerHTML = `
+        <div style="display:flex;align-items:center;gap:10px;color:var(--text-muted)">
+            <div class="skeleton" style="width:20px;height:20px;border-radius:50%"></div>
+            <span>正在从知识库检索「${escapeHtml(topic)}」并生成 ${count} 道练习题...</span>
+        </div>
+    `;
+    if (genBtn) genBtn.disabled = true;
+
+    try {
+        await streamQuizResult(`${API}/quiz/generate-from-kb`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders() },
+            body: JSON.stringify({ topic, doc_id: docId, question_count: count, question_type: qtype }),
+        }, resultDiv);
+    } catch (e) {
+        resultDiv.innerHTML = `
+            <div style="color:var(--danger);text-align:center;padding:20px">
+                <p>❌ 生成失败: ${escapeHtml(e.message)}</p>
+                <button class="btn btn-sm btn-primary" style="margin-top:12px" onclick="generateQuizFromKB()">🔄 重试</button>
+            </div>
+        `;
+    }
+
+    if (genBtn) genBtn.disabled = false;
+}
+
+// ========== 文件选择处理 ==========
+
+function handleQuizFileSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    quizFile = file;
+    document.getElementById('quiz-file-name').textContent = `✅ 已选择: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+    document.getElementById('quiz-file-controls').style.display = 'flex';
+
+    // 自动触发生成
+    generateQuizFromFile();
+
+    // 重置 input 值，确保再次选择同一文件也能触发 onchange
+    event.target.value = '';
+}
+
 // ========== 文件生成 ==========
 
 async function generateQuizFromFile() {
@@ -109,6 +184,7 @@ async function generateQuizFromFile() {
     }
 
     const count = parseInt(document.getElementById('quiz-file-count').value);
+    lastQuestionCount = count;
     const qtype = document.getElementById('quiz-file-type').value;
     const resultDiv = document.getElementById('quiz-result');
     const genBtn = document.getElementById('btn-generate-file');
@@ -190,6 +266,8 @@ function regenerateQuiz() {
     document.getElementById('quiz-result').innerHTML = '';
     if (quizMode === 'text') {
         generateQuiz();
+    } else if (quizMode === 'kb') {
+        generateQuizFromKB();
     } else {
         generateQuizFromFile();
     }
@@ -229,13 +307,21 @@ async function saveResult() {
         showToast('没有可保存的结果', 'warning');
         return;
     }
+    // 根据模式生成标题
+    let title = '练习题';
+    if (quizMode === 'text') {
+        title = document.getElementById('quiz-content')?.value.trim().slice(0, 30) || '练习题';
+    } else if (quizMode === 'kb') {
+        title = document.getElementById('quiz-kb-topic')?.value.trim().slice(0, 30) || '知识库练习题';
+    }
     try {
         const resp = await fetch(`${API}/quiz/results`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...authHeaders() },
             body: JSON.stringify({
-                title: document.getElementById('quiz-content')?.value.trim().slice(0, 30) || '练习题',
+                title: title,
                 result_text: lastResultText,
+                question_count: lastQuestionCount,
             }),
         });
         if (resp.status === 401) { clearAuth(); window.location.href = '/login'; return; }

@@ -6,12 +6,16 @@
 - 流式函数（chat_stream, agent_chat_stream）在异常时 yield 错误消息
 """
 
+import asyncio
+import logging
 from collections.abc import Generator
 
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 def _dict_to_messages(messages: list[dict]) -> list[BaseMessage]:
@@ -20,12 +24,15 @@ def _dict_to_messages(messages: list[dict]) -> list[BaseMessage]:
         "user": HumanMessage,
         "assistant": AIMessage,
         "system": SystemMessage,
+        "tool": ToolMessage,
     }
     result = []
     for m in messages:
         cls = role_map.get(m["role"])
         if cls:
             result.append(cls(content=m["content"]))
+        else:
+            logger.warning("未知消息角色 '%s'，已跳过", m.get("role"))
     return result
 
 
@@ -63,6 +70,43 @@ def chat(
     return resp.content or ""
 
 
+async def chat_async(
+    messages: list[dict],
+    model: str | None = None,
+    temperature: float = 0.7,
+    max_tokens: int = 2048,
+) -> str:
+    """普通对话（异步），返回完整回复 —— 通过 asyncio.to_thread 避免阻塞事件循环"""
+    return await asyncio.to_thread(chat, messages, model=model, temperature=temperature, max_tokens=max_tokens)
+
+
+def _int_setting(name: str, default: int) -> int:
+    """读取整数配置；测试替身或脏环境变量不应破坏 Agent 主流程。"""
+    value = getattr(settings, name, default)
+    return value if isinstance(value, int) and value > 0 else default
+
+
+def _execute_tool(tool_call: dict, tools: list) -> str:
+    """统一执行工具并限制返回长度，避免工具结果挤爆下一轮上下文。"""
+    matched = next(
+        (tool for tool in tools if tool.name == tool_call.get("name")),
+        None,
+    )
+    if matched is None:
+        return f"未知工具: {tool_call.get('name', '')}"
+
+    try:
+        result = str(matched.invoke(tool_call.get("args", {})))
+    except Exception as exc:
+        logger.exception("工具 %s 执行失败", tool_call.get("name"))
+        result = f"工具调用失败: {exc}"
+
+    limit = _int_setting("max_tool_result_chars", 3000)
+    if len(result) > limit:
+        return result[:limit] + f"\n…（工具结果已截断，最多 {limit} 字符）"
+    return result
+
+
 def chat_stream(
     messages: list[dict],
     model: str | None = None,
@@ -91,17 +135,23 @@ def agent_chat(
     max_tokens: int = 2048,
     max_iterations: int = 3,
 ) -> str:
-    """Agent 对话 —— LLM 可自主调用工具（如检索文档），支持多轮工具调用"""
+    """Agent 对话 —— LLM 可自主调用工具（如检索文档），支持多轮工具调用
+
+    Args:
+        max_iterations: 最多允许的 LLM 调用轮次（含最终合成答案那次），
+                        即工具调用最多 max_iterations-1 轮，然后强制合成最终回复。
+    """
     if not settings.llm_api_key:
         raise LLMError("LLM_API_KEY 未配置")
 
+    max_iterations = max(1, min(max_iterations, _int_setting("max_agent_iterations", 4)))
     llm = get_llm(temperature=temperature, max_tokens=max_tokens, model=model)
     if tools:
         llm = llm.bind_tools(tools)
 
     langchain_messages = _dict_to_messages(messages)
 
-    for iteration in range(max_iterations):
+    for _iteration in range(max_iterations - 1):
         response = llm.invoke(langchain_messages)
 
         if not response.tool_calls:
@@ -109,23 +159,30 @@ def agent_chat(
 
         langchain_messages.append(response)
         for tool_call in response.tool_calls:
-            matched = next(
-                (t for t in tools if t.name == tool_call["name"]),
-                None,
-            )
-            if matched:
-                try:
-                    result = matched.invoke(tool_call["args"])
-                except Exception as e:
-                    result = f"工具调用失败: {e}"
-            else:
-                result = f"未知工具: {tool_call['name']}"
+            result = _execute_tool(tool_call, tools or [])
 
             langchain_messages.append(
                 ToolMessage(content=result, tool_call_id=tool_call["id"])
             )
 
-    return langchain_messages[-1].content or ""
+    # 达到最大迭代次数后，最后一次 invoke 可能含 tool_calls，需要再请求一次合成最终答案
+    final = llm.invoke(langchain_messages)
+    return final.content or ""
+
+
+async def agent_chat_async(
+    messages: list[dict],
+    tools: list | None = None,
+    model: str | None = None,
+    temperature: float = 0.7,
+    max_tokens: int = 2048,
+    max_iterations: int = 3,
+) -> str:
+    """Agent 对话（异步） —— 通过 asyncio.to_thread 避免阻塞事件循环"""
+    return await asyncio.to_thread(
+        agent_chat, messages, tools=tools, model=model,
+        temperature=temperature, max_tokens=max_tokens, max_iterations=max_iterations,
+    )
 
 
 def agent_chat_stream(
@@ -136,40 +193,50 @@ def agent_chat_stream(
     max_tokens: int = 2048,
     max_iterations: int = 3,
 ) -> Generator[str, None, None]:
-    """Agent 流式对话 —— LLM 自主调用工具，逐 token 返回最终回复"""
+    """Agent 流式对话 —— LLM 自主调用工具，逐 token 返回最终回复
+
+    Args:
+        max_iterations: 最多允许的 LLM 调用轮次（含最终流式合成那次），
+                        即工具调用最多 max_iterations-1 轮，然后流式合成最终回复。
+    """
     if not settings.llm_api_key:
         yield "⚠️ 请先配置 LLM_API_KEY"
         return
 
     try:
+        max_iterations = max(1, min(max_iterations, _int_setting("max_agent_iterations", 4)))
         llm = get_llm(temperature=temperature, max_tokens=max_tokens, model=model)
         if tools:
             llm = llm.bind_tools(tools)
 
         langchain_messages = _dict_to_messages(messages)
 
-        for iteration in range(max_iterations):
-            response = llm.invoke(langchain_messages)
+        for _iteration in range(max_iterations - 1):
+            # 用 stream 替代 invoke，实现真正的逐 token 输出
+            tool_chunks: list[BaseMessage] = []
+            is_tool_call = False
 
-            if not response.tool_calls:
-                # 无需工具调用，直接返回 invoke 结果（不重复请求）
-                yield response.content or ""
+            for chunk in llm.stream(langchain_messages):
+                if getattr(chunk, "tool_call_chunks", None):
+                    is_tool_call = True
+                    tool_chunks.append(chunk)
+                elif is_tool_call:
+                    tool_chunks.append(chunk)
+                else:
+                    if chunk.content:
+                        yield chunk.content
+
+            if not is_tool_call:
                 return
 
-            # 执行工具调用
-            langchain_messages.append(response)
-            for tool_call in response.tool_calls:
-                matched = next(
-                    (t for t in tools if t.name == tool_call["name"]),
-                    None,
-                )
-                if matched:
-                    try:
-                        result = matched.invoke(tool_call["args"])
-                    except Exception as e:
-                        result = f"工具调用失败: {e}"
-                else:
-                    result = f"未知工具: {tool_call['name']}"
+            # 从 tool_chunks 重建消息
+            reconstructed = tool_chunks[0]
+            for c in tool_chunks[1:]:
+                reconstructed += c
+            langchain_messages.append(reconstructed)
+
+            for tool_call in reconstructed.tool_calls:
+                result = _execute_tool(tool_call, tools or [])
 
                 langchain_messages.append(
                     ToolMessage(content=result, tool_call_id=tool_call["id"])
@@ -177,7 +244,7 @@ def agent_chat_stream(
 
             yield "\n\n_[Agent 检索完成，正在生成回复...]_\n\n"
 
-        # 达到最大迭代次数后，再请求一次并以流式返回最终结果
+        # 达到最大迭代次数后，以流式合成最终答案（省去一次 invoke，调用次数 = max_iterations）
         for chunk in llm.stream(langchain_messages):
             if chunk.content:
                 yield chunk.content
@@ -187,6 +254,13 @@ def agent_chat_stream(
 
 TUTOR_SYSTEM_PROMPT = """你是一位专业、耐心的 AI 学习导师，叫 TutorAI。
 
+你拥有以下工具，可根据对话意图自主决定是否调用：
+1. retrieve_document — 搜索已上传文档中的相关内容（当用户提问需要参考文档知识时调用）
+2. generate_quiz — 根据内容生成练习题（当用户想做题、测试知识掌握程度时调用）
+3. list_documents — 列出用户已上传的文档（当用户想查看文档列表时调用）
+4. save_memory — 仅当学生明确说“记住/保存”时，保存长期学习目标、偏好或进度
+5. list_memory — 查看已保存的学习记忆
+
 教学原则:
 - 用通俗易懂的语言解释复杂概念
 - 多用生活中的例子和类比
@@ -194,6 +268,7 @@ TUTOR_SYSTEM_PROMPT = """你是一位专业、耐心的 AI 学习导师，叫 Tu
 - 回答结构清晰，适当使用标题和列表
 - 对于编程问题，给出带注释的代码示例
 - 发现学生理解有误时，温和地纠正
+- 当用户要求出题时，优先调用 generate_quiz 工具
 
 请用中文回答。如果学生用英文提问，就用英文回答。"""
 
@@ -202,14 +277,30 @@ def build_chat_messages(
     history: list[dict],
     user_message: str,
     doc_context: str = "",
+    memory_context: str = "",
 ) -> list[dict]:
     """构建发给 LLM 的完整消息列表"""
     system = TUTOR_SYSTEM_PROMPT
     if doc_context:
-        system += f"\n\n以下是学生上传的文档内容，请基于这些内容回答后续问题:\n{doc_context[:3000]}"
+        system += f"\n\n以下是学生上传的文档内容，请基于这些内容回答后续问题:\n{doc_context[:settings.max_context_chars]}"
+    if memory_context:
+        system += (
+            "\n\n以下是学生主动保存的学习记忆，仅用于个性化回答；"
+            "如果与当前问题冲突，以当前问题为准:\n"
+            f"{memory_context[:settings.max_context_chars]}"
+        )
 
     messages: list[dict] = [{"role": "system", "content": system}]
-    for msg in history[-20:]:
+    total_chars = 0
+    selected_history: list[dict] = []
+    for msg in reversed(history):
+        content = str(msg.get("content", ""))
+        max_history_chars = _int_setting("max_history_chars", 12000)
+        if selected_history and total_chars + len(content) > max_history_chars:
+            break
+        selected_history.append(msg)
+        total_chars += len(content)
+    for msg in reversed(selected_history):
         messages.append({"role": msg["role"], "content": msg["content"]})
     messages.append({"role": "user", "content": user_message})
     return messages

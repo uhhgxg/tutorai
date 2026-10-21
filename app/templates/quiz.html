@@ -11,6 +11,7 @@
     <div class="quiz-input-section">
         <div class="quiz-tabs">
             <button class="quiz-tab active" onclick="switchQuizTab('text')">✍️ 输入知识点</button>
+            <button class="quiz-tab" onclick="switchQuizTab('kb')">📚 从知识库出题</button>
             <button class="quiz-tab" onclick="switchQuizTab('file')">📄 上传文档</button>
         </div>
 
@@ -35,6 +36,35 @@
                     <option value="10">10 题</option>
                 </select>
                 <button class="btn btn-primary" id="btn-generate" onclick="generateQuiz()">🎲 生成练习题</button>
+            </div>
+        </div>
+
+        <!-- 知识库出题模式 -->
+        <div id="quiz-kb-mode" class="quiz-mode" style="display:none">
+            <div style="margin-bottom:12px">
+                <label style="font-weight:600;display:block;margin-bottom:4px">选择文档（可选）:</label>
+                <select id="quiz-kb-doc" style="width:100%;padding:8px;border-radius:var(--radius-sm);border:1px solid var(--border)">
+                    <option value="">全部文档</option>
+                </select>
+            </div>
+            <textarea id="quiz-kb-topic" class="quiz-textarea" style="height:80px"
+                      placeholder="输入知识点，AI 会自动从文档中检索相关内容来出题&#10;例如：第三章 决策树算法、光合作用的光反应阶段"></textarea>
+            <div class="quiz-controls">
+                <label for="quiz-kb-type">题型:</label>
+                <select id="quiz-kb-type">
+                    <option value="choice">选择题</option>
+                    <option value="true_false">判断题</option>
+                    <option value="fill_blank">填空题</option>
+                    <option value="short_answer">简答题</option>
+                    <option value="mixed" selected>混合题型</option>
+                </select>
+                <label for="quiz-kb-count">题目数量:</label>
+                <select id="quiz-kb-count">
+                    <option value="3">3 题</option>
+                    <option value="5" selected>5 题</option>
+                    <option value="10">10 题</option>
+                </select>
+                <button class="btn btn-primary" id="btn-generate-kb" onclick="generateQuizFromKB()">🎲 生成练习题</button>
             </div>
         </div>
 
@@ -93,5 +123,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/quiz.js"></script>
+<script src="/static/js/quiz.js?v=2"></script>
 {% endblock %}

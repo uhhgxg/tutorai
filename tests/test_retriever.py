@@ -1,17 +1,16 @@
 """ChromaDB 检索器测试（使用 EphemeralClient 内存模式）"""
 
-import pytest
 import chromadb
 from chromadb.config import Settings
 
-from app.services.retriever import Retriever
 from app.services.document_parser import chunk_text
+from app.services.retriever import HashEmbeddingFunction, Retriever
 
 
 def _make_retriever() -> Retriever:
     """创建使用 EphemeralClient（内存模式）的检索器，测试无需清理"""
     client = chromadb.EphemeralClient(settings=Settings(anonymized_telemetry=False))
-    return Retriever(client=client)
+    return Retriever(client=client, embedding_function=HashEmbeddingFunction())
 
 
 class TestRetriever:
@@ -84,6 +83,23 @@ class TestRetriever:
         assert all(r.metadata["doc_id"] != "doc1" for r in results)
         results = r.search("莎士比亚")
         assert len(results) >= 1  # doc2 还在
+
+    def test_search_returns_hybrid_scores_and_source(self):
+        r = _make_retriever()
+        r.index("doc1", "user1", ["Python 的列表是一种可变序列"])
+        results = r.search("Python 列表", top_k=1)
+        assert len(results) == 1
+        assert results[0].metadata["semantic_score"] >= 0
+        assert results[0].metadata["lexical_score"] > 0
+        assert results[0].metadata["source"] == "doc1#0"
+
+    def test_rebuild_index_keeps_all_chunks_of_one_document(self):
+        r = _make_retriever()
+        r.reset()
+        r.index("doc1", "user1", ["旧数据"])
+        # 通过实例方法模拟 rebuild_index 的分组效果：一次性写入多个 chunk。
+        r.index("doc1", "user1", ["第一段", "第二段"])
+        assert r.count() == 2
 
 
 class TestChunkText:

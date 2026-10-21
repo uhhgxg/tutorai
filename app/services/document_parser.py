@@ -24,6 +24,10 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.config import settings
 
+# 设置 TESSDATA_PREFIX 环境变量，让 pytesseract 能找到语言数据文件
+if settings.tessdata_prefix:
+    os.environ["TESSDATA_PREFIX"] = settings.tessdata_prefix
+
 # 日志记录器：记录程序运行过程中的重要信息，方便排查问题
 logger = logging.getLogger(__name__)
 
@@ -85,9 +89,10 @@ def _ocr_fallback(image_pages: list[tuple[int, bytes]]) -> str:
     - 系统安装 tesseract-ocr（https://github.com/UB-Mannheim/tesseract/wiki）
     """
     try:
+        import io
+
         import pytesseract  # Google 的 OCR 引擎 Python 封装
         from PIL import Image  # Python 图片处理库
-        import io
     except ImportError:
         logger.warning("pytesseract 或 Pillow 未安装，跳过 OCR 降级")
         return ""

@@ -23,6 +23,21 @@ class ConversationResponse(BaseModel):
     updated_at: str
 
 
+# --- Memory ---
+class MemoryCreateRequest(BaseModel):
+    content: str = Field(..., min_length=1, max_length=500)
+    category: str = Field(default="general", pattern=r"^(profile|goal|preference|progress|general)$")
+
+
+class MemoryResponse(BaseModel):
+    id: str
+    category: str
+    content: str
+    source: str
+    created_at: str
+    updated_at: str
+
+
 # --- Document ---
 class DocumentResponse(BaseModel):
     id: str
@@ -48,9 +63,17 @@ class QuizRequest(BaseModel):
     question_type: str = Field(default="choice", pattern=r"^(choice|true_false|fill_blank|short_answer|mixed)$")
 
 
+class QuizKbRequest(BaseModel):
+    topic: str = Field(..., min_length=1, max_length=500, description="出题的知识点，如'第三章 决策树'")
+    doc_id: str | None = Field(default=None, description="限定文档 ID，不传则搜索全部文档")
+    question_count: int = Field(default=3, ge=1, le=10)
+    question_type: str = Field(default="choice", pattern=r"^(choice|true_false|fill_blank|short_answer|mixed)$")
+
+
 class QuizSaveRequest(BaseModel):
     title: str = ""
     result_text: str = Field(..., min_length=1)
+    question_count: int | None = Field(default=None, ge=0, le=20, description="前端已知的题数，不传则后端自动计数")
 
 
 class QuizResultResponse(BaseModel):

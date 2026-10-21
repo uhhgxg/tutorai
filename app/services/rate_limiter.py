@@ -4,7 +4,6 @@
 自动清理过期记录，表在首次使用时创建。
 """
 
-import os
 import sqlite3
 import time
 from pathlib import Path

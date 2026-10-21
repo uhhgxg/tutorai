@@ -668,18 +668,19 @@ a:hover { text-decoration: underline; }
 
 .chat-input {
     flex: 1;
-    padding: 12px 16px;
+    padding: 14px 18px;
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    font-size: 0.9rem;
+    font-size: 0.95rem;
     font-family: inherit;
     resize: none;
     outline: none;
     transition: border var(--transition), box-shadow var(--transition);
     background: var(--card);
     color: var(--text);
-    line-height: 1.5;
-    max-height: 150px;
+    line-height: 1.6;
+    min-height: 52px;
+    max-height: 200px;
 }
 
 .chat-input:focus {
@@ -688,6 +689,13 @@ a:hover { text-decoration: underline; }
 }
 
 .chat-input::placeholder { color: var(--text-muted); }
+
+.chat-input-area .btn {
+    padding: 10px 16px;
+    font-size: 0.85rem;
+    flex-shrink: 0;
+    height: fit-content;
+}
 
 .input-hint {
     font-size: 0.7rem;
@@ -1014,6 +1022,10 @@ a:hover { text-decoration: underline; }
 /* 移动端汉堡按钮 */
 .mobile-menu-btn {
     display: none;
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 50;
     background: none;
     border: none;
     font-size: 1.5rem;
@@ -1044,12 +1056,97 @@ a:hover { text-decoration: underline; }
     border-radius: 6px; font-size: 1rem; box-sizing: border-box;
     background: var(--card); color: var(--text);
 }
-.btn-primary {
+.auth-card .btn-primary {
     width: 100%; padding: 0.75rem; background: var(--primary);
     color: #fff; border: none; border-radius: 6px; font-size: 1rem;
     cursor: pointer; margin-top: 0.5rem;
 }
-.btn-primary:hover { opacity: 0.9; }
+.auth-card .btn-primary:hover { opacity: 0.9; }
 .auth-link { text-align: center; margin-top: 1rem; font-size: 0.9rem; }
 .auth-link a { color: var(--primary); text-decoration: none; }
 .auth-error { color: #dc3545; text-align: center; margin-top: 0.5rem; font-size: 0.9rem; }
+
+
+/* --- ??/??? --- */
+.auth-page {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 80vh;
+    padding: 2rem;
+}
+.auth-card {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 2.5rem;
+    width: 100%;
+    max-width: 400px;
+    box-shadow: var(--shadow-lg);
+}
+.auth-card h1 {
+    text-align: center;
+    margin-bottom: 1.5rem;
+    font-size: 1.5rem;
+}
+.form-group {
+    margin-bottom: 1rem;
+}
+.form-group label {
+    display: block;
+    margin-bottom: 0.3rem;
+    font-weight: 500;
+    font-size: 0.9rem;
+}
+.form-group input {
+    width: 100%;
+    padding: 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 1rem;
+    box-sizing: border-box;
+    background: var(--card);
+    color: var(--text);
+    font-family: inherit;
+}
+.form-group input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--primary-ghost);
+    outline: none;
+}
+.auth-link {
+    text-align: center;
+    margin-top: 1rem;
+    font-size: 0.9rem;
+}
+.auth-link a {
+    color: var(--primary);
+    text-decoration: none;
+}
+.auth-error {
+    color: var(--danger);
+    text-align: center;
+    margin-top: 0.5rem;
+    font-size: 0.9rem;
+}
+
+/* ========== KaTeX 数学公式 ========== */
+
+.katex-display {
+    margin: 0.8em 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0.2em 0;
+}
+
+.message-bubble .katex-display {
+    text-align: center;
+}
+
+/* 深色主题下 KaTeX 公式颜色调整 */
+[data-theme="dark"] .katex {
+    color: #E2E8F0;
+}
+
+[data-theme="dark"] .katex .mord.text {
+    color: #E2E8F0;
+}

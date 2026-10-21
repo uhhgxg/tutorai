@@ -1,23 +1,41 @@
 """数据库操作测试"""
 
-from app.database import (
-    get_db, create_conversation, list_conversations,
-    get_conversation, delete_conversation, add_message, get_messages,
-    save_document, list_documents, get_document_chunks, delete_document,
+from datetime import UTC
+
+from app.db.conversation_repo import (
+    add_message,
+    create_conversation,
+    delete_conversation,
+    get_conversation,
+    get_messages,
+    list_conversations,
 )
+from app.db.document_repo import (
+    delete_document,
+    get_document_chunks,
+    list_documents,
+    save_document,
+)
+from app.db.engine import get_db_connection as get_db
 
 _TEST_USER = "testuser"
+_OTHER_USER = "otheruser"
 
 
 def setup_module():
-    from datetime import datetime, timezone
+    from datetime import datetime
+
     from app.auth import hash_password
     conn = get_db()
     conn.executescript("DELETE FROM users; DELETE FROM documents; DELETE FROM conversations; DELETE FROM messages;")
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     conn.execute(
         "INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)",
         (_TEST_USER, "dbuser", hash_password("test1234"), now),
+    )
+    conn.execute(
+        "INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)",
+        (_OTHER_USER, "otheruser", hash_password("test1234"), now),
     )
     conn.commit()
     conn.close()
@@ -39,9 +57,9 @@ class TestConversations:
         conv = create_conversation(conn, _TEST_USER, "要删除的对话")
         cid = conv["id"]
 
-        assert get_conversation(conn, cid) is not None
-        delete_conversation(conn, cid)
-        assert get_conversation(conn, cid) is None
+        assert get_conversation(conn, cid, _TEST_USER) is not None
+        delete_conversation(conn, cid, _TEST_USER)
+        assert get_conversation(conn, cid, _TEST_USER) is None
         conn.close()
 
 
@@ -49,13 +67,71 @@ class TestMessages:
     def test_add_and_get(self):
         conn = get_db()
         conv = create_conversation(conn, _TEST_USER, "有消息的对话")
-        add_message(conn, conv["id"], "user", "你好")
-        add_message(conn, conv["id"], "assistant", "你好！有什么可以帮助你的？")
+        add_message(conn, conv["id"], _TEST_USER, "user", "你好")
+        add_message(conn, conv["id"], _TEST_USER, "assistant", "你好！有什么可以帮助你的？")
 
-        msgs = get_messages(conn, conv["id"])
+        msgs = get_messages(conn, conv["id"], _TEST_USER)
         assert len(msgs) == 2
         assert msgs[0]["role"] == "user"
         assert msgs[1]["role"] == "assistant"
+        conn.close()
+
+
+class TestIDORProtection:
+    """验证 IDOR 防护 — 用户 A 无法访问/操作用户 B 的对话"""
+
+    def test_cannot_get_other_users_conversation(self):
+        """用户 B 不能查看用户 A 的对话"""
+        conn = get_db()
+        conv = create_conversation(conn, _TEST_USER, "用户A的对话")
+        conn.close()
+
+        conn = get_db()
+        assert get_conversation(conn, conv["id"], _OTHER_USER) is None
+        conn.close()
+
+    def test_cannot_delete_other_users_conversation(self):
+        """用户 B 不能删除用户 A 的对话"""
+        conn = get_db()
+        conv = create_conversation(conn, _TEST_USER, "用户A的对话")
+        conn.close()
+
+        conn = get_db()
+        assert delete_conversation(conn, conv["id"], _OTHER_USER) is False
+        conn.close()
+
+        # 确认对话仍然存在
+        conn = get_db()
+        assert get_conversation(conn, conv["id"], _TEST_USER) is not None
+        conn.close()
+
+    def test_cannot_add_message_to_other_users_conversation(self):
+        """用户 B 不能向用户 A 的对话发消息"""
+        conn = get_db()
+        conv = create_conversation(conn, _TEST_USER, "用户A的对话")
+        conn.close()
+
+        conn = get_db()
+        result = add_message(conn, conv["id"], _OTHER_USER, "user", "恶意消息")
+        assert result is None
+        conn.close()
+
+        # 确认对话中没有消息
+        conn = get_db()
+        msgs = get_messages(conn, conv["id"], _TEST_USER)
+        assert len(msgs) == 0
+        conn.close()
+
+    def test_cannot_get_messages_from_other_users_conversation(self):
+        """用户 B 不能读取用户 A 对话的消息"""
+        conn = get_db()
+        conv = create_conversation(conn, _TEST_USER, "用户A的对话")
+        add_message(conn, conv["id"], _TEST_USER, "user", "私密内容")
+        conn.close()
+
+        conn = get_db()
+        msgs = get_messages(conn, conv["id"], _OTHER_USER)
+        assert len(msgs) == 0
         conn.close()
 
 

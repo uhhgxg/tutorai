@@ -9,7 +9,8 @@ import tempfile
 
 import pytest
 
-_test_db_dir = tempfile.mkdtemp(prefix="tutorai_test_")
+# Windows 沙箱/CI 可能限制系统 Temp 下的 SQLite 写入，放在仓库目录更稳定。
+_test_db_dir = tempfile.mkdtemp(prefix=".tutorai_test_", dir=os.getcwd())
 _test_db_path = os.path.join(_test_db_dir, "test_tutorai.db")
 os.environ["DATABASE_URL"] = f"sqlite:///{_test_db_path}"
 # 强制使用 DELETE journal 模式，避免 WAL 文件锁定问题
