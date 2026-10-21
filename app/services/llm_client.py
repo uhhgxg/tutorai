@@ -8,7 +8,7 @@
 
 import asyncio
 import logging
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
@@ -86,24 +86,48 @@ def _int_setting(name: str, default: int) -> int:
     return value if isinstance(value, int) and value > 0 else default
 
 
-def _execute_tool(tool_call: dict, tools: list) -> str:
+def _notify(event_callback: Callable[[dict], None] | None, event: dict) -> None:
+    """通知 Runtime 生命周期事件；观测失败不能影响 Agent 主流程。"""
+    if event_callback is None:
+        return
+    try:
+        event_callback(event)
+    except Exception:
+        logger.debug("Agent event callback failed", exc_info=True)
+
+
+def _execute_tool(
+    tool_call: dict,
+    tools: list,
+    event_callback: Callable[[dict], None] | None = None,
+) -> str:
     """统一执行工具并限制返回长度，避免工具结果挤爆下一轮上下文。"""
+    tool_name = str(tool_call.get("name", ""))
+    _notify(
+        event_callback,
+        {"type": "tool_call", "name": tool_name, "tool_call_id": str(tool_call.get("id", ""))},
+    )
     matched = next(
-        (tool for tool in tools if tool.name == tool_call.get("name")),
+        (tool for tool in tools if tool.name == tool_name),
         None,
     )
     if matched is None:
-        return f"未知工具: {tool_call.get('name', '')}"
+        result = f"未知工具: {tool_name}"
+        _notify(event_callback, {"type": "tool_result", "name": tool_name, "ok": False, "chars": len(result)})
+        return result
 
+    ok = True
     try:
         result = str(matched.invoke(tool_call.get("args", {})))
     except Exception as exc:
         logger.exception("工具 %s 执行失败", tool_call.get("name"))
         result = f"工具调用失败: {exc}"
+        ok = False
 
     limit = _int_setting("max_tool_result_chars", 3000)
     if len(result) > limit:
-        return result[:limit] + f"\n…（工具结果已截断，最多 {limit} 字符）"
+        result = result[:limit] + f"\n…（工具结果已截断，最多 {limit} 字符）"
+    _notify(event_callback, {"type": "tool_result", "name": tool_name, "ok": ok, "chars": len(result)})
     return result
 
 
@@ -134,6 +158,7 @@ def agent_chat(
     temperature: float = 0.7,
     max_tokens: int = 2048,
     max_iterations: int = 3,
+    event_callback: Callable[[dict], None] | None = None,
 ) -> str:
     """Agent 对话 —— LLM 可自主调用工具（如检索文档），支持多轮工具调用
 
@@ -159,7 +184,7 @@ def agent_chat(
 
         langchain_messages.append(response)
         for tool_call in response.tool_calls:
-            result = _execute_tool(tool_call, tools or [])
+            result = _execute_tool(tool_call, tools or [], event_callback=event_callback)
 
             langchain_messages.append(
                 ToolMessage(content=result, tool_call_id=tool_call["id"])
@@ -177,11 +202,13 @@ async def agent_chat_async(
     temperature: float = 0.7,
     max_tokens: int = 2048,
     max_iterations: int = 3,
+    event_callback: Callable[[dict], None] | None = None,
 ) -> str:
     """Agent 对话（异步） —— 通过 asyncio.to_thread 避免阻塞事件循环"""
     return await asyncio.to_thread(
         agent_chat, messages, tools=tools, model=model,
         temperature=temperature, max_tokens=max_tokens, max_iterations=max_iterations,
+        event_callback=event_callback,
     )
 
 
@@ -192,6 +219,7 @@ def agent_chat_stream(
     temperature: float = 0.7,
     max_tokens: int = 2048,
     max_iterations: int = 3,
+    event_callback: Callable[[dict], None] | None = None,
 ) -> Generator[str, None, None]:
     """Agent 流式对话 —— LLM 自主调用工具，逐 token 返回最终回复
 
@@ -236,7 +264,7 @@ def agent_chat_stream(
             langchain_messages.append(reconstructed)
 
             for tool_call in reconstructed.tool_calls:
-                result = _execute_tool(tool_call, tools or [])
+                result = _execute_tool(tool_call, tools or [], event_callback=event_callback)
 
                 langchain_messages.append(
                     ToolMessage(content=result, tool_call_id=tool_call["id"])

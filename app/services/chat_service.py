@@ -5,6 +5,7 @@ from sqlite3 import Connection
 
 from fastapi import HTTPException
 
+from app.agent import ToolRegistry, TurnContext, TutorOrchestrator
 from app.config import settings
 from app.db.conversation_repo import (
     add_message as repo_add_msg,
@@ -29,12 +30,7 @@ from app.db.conversation_repo import (
 )
 from app.db.engine import get_db_connection
 from app.db.memory_repo import list_memories
-from app.services.llm_client import (
-    LLMError,
-    agent_chat_async,
-    agent_chat_stream,
-    build_chat_messages,
-)
+from app.services.llm_client import LLMError, build_chat_messages
 from app.services.tools import create_user_tools
 
 logger = logging.getLogger(__name__)
@@ -45,7 +41,8 @@ class ChatService:
 
     def __init__(self, user_id: str):
         self._user_id = user_id
-        self._tools = create_user_tools(user_id)
+        self._tool_registry = ToolRegistry(create_user_tools(user_id))
+        self._orchestrator = TutorOrchestrator()
 
     # --- 对话管理 ---
 
@@ -67,7 +64,7 @@ class ChatService:
         return repo_get_msgs(conn, conv_id, self._user_id)
 
     def _prepare_chat(self, conn: Connection, conv_id: str, message: str):
-        """验证对话、保存消息、构建历史、自动生成标题，返回 LLM 消息列表"""
+        """验证对话、保存消息、构建历史，并组装一次 Agent TurnContext。"""
         conv = repo_get_conv(conn, conv_id, self._user_id)
         if not conv:
             raise HTTPException(status_code=404, detail="对话不存在")
@@ -84,20 +81,27 @@ class ChatService:
             for memory in list_memories(conn, self._user_id, limit=settings.max_memory_items)
         )
 
-        return build_chat_messages(
+        messages = build_chat_messages(
             [{"role": m["role"], "content": m["content"]} for m in history[:-1]],
             message,
             memory_context=memory_context,
         )
+        return TurnContext(
+            user_id=self._user_id,
+            conversation_id=conv_id,
+            user_message=message,
+            messages=messages,
+            tools=self._tool_registry,
+        )
 
     def send_message_stream(self, conn: Connection, conv_id: str, message: str):
         """流式发送消息（返回 generator，由 router 包装为 StreamingResponse）"""
-        msgs = self._prepare_chat(conn, conv_id, message)
+        context = self._prepare_chat(conn, conv_id, message)
         full_response: list[str] = []
 
         def generate():
             try:
-                for token in agent_chat_stream(msgs, tools=self._tools):
+                for token in self._orchestrator.stream_text(context):
                     full_response.append(token)
                     yield token
             except GeneratorExit:
@@ -110,9 +114,9 @@ class ChatService:
 
     async def send_message_sync(self, conn: Connection, conv_id: str, message: str) -> dict:
         """异步发送消息（非流式）—— 通过 asyncio.to_thread 避免阻塞事件循环"""
-        msgs = self._prepare_chat(conn, conv_id, message)
+        context = self._prepare_chat(conn, conv_id, message)
         try:
-            reply = await agent_chat_async(msgs, tools=self._tools)
+            reply = (await self._orchestrator.run_async(context)).reply
         except LLMError as e:
             raise HTTPException(status_code=503, detail=str(e))
         self._save_assistant_message(conv_id, reply)

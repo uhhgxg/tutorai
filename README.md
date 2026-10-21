@@ -20,7 +20,9 @@ flowchart TB
     subgraph FastAPI["FastAPI 应用层"]
         direction TB
         R["路由层<br/>Chat / Document / Quiz / Memory / Pages"]
-        S["服务层<br/>LLM Client · Retriever ·<br/>Context · Tools"]
+        S["服务层<br/>ChatService · Retriever · Document · Quiz"]
+        RT["Agent Runtime<br/>TurnContext → Orchestrator<br/>ToolRegistry → StreamEvent"]
+        T["L1 Trace<br/>按用户/日期追加 JSONL"]
         DB[("数据库层<br/>SQLite 7 表")]
     end
 
@@ -29,9 +31,31 @@ flowchart TB
     end
 
     Browser -- HTTP / SSE Stream --> R
-    R --> S
+    R --> S --> RT
+    RT --> T
+    RT --> S
     S --> DB
-    S --> LLM
+    RT --> LLM
+```
+
+### Agent Runtime 执行链
+
+每次对话先组装成一个 `TurnContext`，再由 `TutorOrchestrator` 校验并路由到当前能力。
+`CapabilityRegistry` 管理能力边界，`ToolRegistry` 按能力决定本轮挂载哪些工具，LLM 的工具调用和文本增量统一转换为
+`StreamEvent`；HTTP 接口只取其中的 `delta`，所以以后可以无缝增加 WebSocket、调试
+面板或异步任务消费者。运行阶段只写入不含 prompt/结果正文的 L1 JSONL 轨迹，便于
+排查“调用了哪个工具、在哪一步失败”，同时不把用户原文写进 trace。
+
+```text
+TurnContext
+    ↓
+TutorOrchestrator
+    ├── CapabilityRegistry → chat / quiz
+    ├── ToolRegistry.for_capability()
+    ├── LLM Agent Loop
+    │   ├── tool_call / tool_result
+    │   └── delta
+    └── TraceRecorder → data/traces/<user>/<surface>/<date>.jsonl
 ```
 
 ### RAG 链路（核心面试点）
@@ -89,6 +113,11 @@ flowchart LR
 app/
 ├── main.py                 # FastAPI 应用入口（生命周期、中间件、路由注册）
 ├── config.py               # 配置管理（Pydantic Settings + .env 文件）
+├── agent/                   # 统一 Agent Runtime（上下文、编排、工具注册、L1 轨迹）
+│   ├── contracts.py         # TurnContext / StreamEvent / AgentResult
+│   ├── orchestrator.py      # 一次 turn 的统一执行入口
+│   ├── registry.py          # 按 capability 组合工具
+│   └── trace.py             # 脱敏 JSONL 执行轨迹
 ├── db/                     # SQLite 连接、迁移与按用户隔离的仓储
 │   ├── engine.py           # 连接管理、建表、迁移、重试
 │   ├── memory_repo.py      # 可检查记忆 CRUD
@@ -146,7 +175,7 @@ docker compose down
 ## 测试
 
 ```bash
-# 全部 44 个测试
+# 全部测试
 pytest tests/ -v
 
 # 单独测试模块
